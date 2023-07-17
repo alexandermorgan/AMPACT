@@ -4,7 +4,7 @@ import numpy as np
 import pdb
 
 
-score_path = '/Users/amor/Desktop/Code/CUNY/exampleOneNote.mid'
+score_path = './test_files/exampleOneNote.mid'
 score = m21.converter.parse(score_path)
 _memos = {}
 aFreq = 440

@@ -3,9 +3,9 @@ import music21 as m21
 import pdb
 
 # adjustable constants
-score_path = './test_files/example3Note.mid'
+score_path = './test_files/example6Note.mid'
 aFreq = 440
-width = 2
+width = 0
 
 # basic indexing of score
 score = m21.converter.parse(score_path)
@@ -25,7 +25,7 @@ for i, flat_part in enumerate(semi_flat_parts):
   notesAndRests = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
   notesAndRests = [max(noteOrRest.notes) if noteOrRest.isChord else noteOrRest for noteOrRest in notesAndRests]
   ser = pd.Series(notesAndRests, name=part_names[i])
-  ser.index = ser.apply(lambda noteOrRest: noteOrRest.offset)
+  ser.index = ser.apply(lambda noteOrRest: round(float(noteOrRest.offset), 4))
   # for now remove multiple events at the same offset in a given part
   ser = ser[~ser.index.duplicated()]
   part_series.append(ser)
@@ -57,7 +57,6 @@ _piano_roll.fillna(0, inplace=True)
 
 for h, col in enumerate(midi_pitches.columns):
   part = midi_pitches.loc[:, col].dropna()
-  pdb.set_trace()
   partIndexInPianoRoll = part.index.to_series().apply(lambda i: _piano_roll.columns.get_loc(i))
   for i, row in enumerate(part.index[:-1]):
     pitch = int(part.at[row])
@@ -77,7 +76,9 @@ for h, col in enumerate(midi_pitches.columns):
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
 piano_roll.index = freqs
-sampled = pd.DataFrame(columns=[t/20  for t in range(0, int(score.highestTime) * 20 + 1)], index=freqs)
+col_set = set(piano_roll.columns)  # this set makes sure that any timepoints in piano_roll cols will persist
+col_set.update([t/20  for t in range(0, int(score.highestTime) * 20 + 1)])
+sampled = pd.DataFrame(columns=sorted(col_set), index=freqs)
 sampled.update(piano_roll)
 piano_roll = sampled.ffill(axis=1)
 pr = piano_roll.copy()

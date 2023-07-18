@@ -1,21 +1,18 @@
 import pandas as pd
 import music21 as m21
-import numpy as np
 import pdb
 
-
+# adjustable constants
 score_path = './test_files/exampleOneNote.mid'
-score = m21.converter.parse(score_path)
-_memos = {}
 aFreq = 440
-width = 0
+width = 2
 
-_memos['parts'] = score.getElementsByClass(m21.stream.Part)
-
-_memos['semiFlatParts'] = [part.semiFlat for part in _memos['parts']]
-
+# basic indexing of score
+score = m21.converter.parse(score_path)
+parts = score.getElementsByClass(m21.stream.Part)
+semi_flat_parts = [part.semiFlat for part in parts]
 part_names = []
-for i, part in enumerate(_memos['semiFlatParts']):
+for i, part in enumerate(semi_flat_parts):
   name = part.partName or 'Part-' + str(i + 1)
   if name in part_names:
     name = 'Part-' + str(i + 1)
@@ -23,10 +20,8 @@ for i, part in enumerate(_memos['semiFlatParts']):
     print('\n*** Warning: it is problematic to have an underscore in a part name so _ was replaced with -. ***\n')
     name = name.replace('_', '-')
   part_names.append(name)
-_memos['partNames'] = part_names
-
 part_series = []
-for i, flat_part in enumerate(_memos['semiFlatParts']):
+for i, flat_part in enumerate(semi_flat_parts):
   notesAndRests = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
   notesAndRests = [max(noteOrRest.notes) if noteOrRest.isChord else noteOrRest for noteOrRest in notesAndRests]
   ser = pd.Series(notesAndRests, name=part_names[i])
@@ -34,64 +29,59 @@ for i, flat_part in enumerate(_memos['semiFlatParts']):
   # for now remove multiple events at the same offset in a given part
   ser = ser[~ser.index.duplicated()]
   part_series.append(ser)
-_memos['partSeries'] = part_series
-
-_memos['m21Objects'] = pd.concat(_memos['partSeries'], names=_memos['partNames'], axis=1)
-
+m21_objects = pd.concat(part_series, names=part_names, axis=1)
 def _remove_tied(noteOrRest):
   if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
-    return np.nan
+    return pd.NA
   return noteOrRest
-_memos['m21ObjectsNoTies'] = _memos['m21Objects'].applymap(_remove_tied).dropna(how='all')
+m21ObjectsNoTies = m21_objects.applymap(_remove_tied).dropna(how='all')
 
+# process notes as midi pitches
 def _midiPitchHelper(noteOrRest):
   """midi does not have a representation for rests, so use -1 as a placeholder."""
   if noteOrRest.isRest:
     return -1
   return noteOrRest.pitch.midi
-_memos['midiPitches'] = _memos['m21ObjectsNoTies'].applymap(_midiPitchHelper, na_action='ignore')
-_memos['midiPitches'] = _memos['midiPitches'].ffill().astype(int)
-# add "rests" to end to effectively give correct duration to last note in each voice
-_memos['midiPitches'].loc[score.highestTime, :] = -1
-mp = _memos['midiPitches']
+midi_pitches = m21ObjectsNoTies.applymap(_midiPitchHelper, na_action='ignore')
+midi_pitches = midi_pitches.ffill().astype(int)
+midi_pitches.loc[score.highestTime, :] = -1   # add "rests" to end to effectively give correct duration to last note in each voice
 
-_possibleMidiPitches = list(range(128))
-_pianoRoll = pd.DataFrame(index=_possibleMidiPitches, columns=_memos['midiPitches'].index.values)
-
+# construct midi piano roll / mask, NB: there are 128 possible midi pitches
+_piano_roll = pd.DataFrame(index=range(128), columns=midi_pitches.index.values)
 def _reshape(row):
   for midiNum in row.values:
     if midiNum > -1:
-      _pianoRoll.at[midiNum, row.name] = 1
-_memos['midiPitches'].apply(_reshape, axis=1)
-_pianoRoll.fillna(0, inplace=True)
+      _piano_roll.at[midiNum, row.name] = 1
+midi_pitches.apply(_reshape, axis=1)
+_piano_roll.fillna(0, inplace=True)
 
-for h, col in enumerate(_memos['midiPitches'].columns):
-  part = _memos['midiPitches'].loc[:, col].dropna()
-  partIndexInPianoRoll = part.index.to_series().apply(lambda i: _pianoRoll.index.get_loc(i))
+for h, col in enumerate(midi_pitches.columns):
+  part = midi_pitches.loc[:, col].dropna()
+  partIndexInPianoRoll = part.index.to_series().apply(lambda i: _piano_roll.index.get_loc(i))
   for i, row in enumerate(part.index[:-1]):
     pitch = int(part.at[row])
     start = partIndexInPianoRoll[row]
     end = partIndexInPianoRoll[part.index[i + 1]]
     if pitch > -1:
-      _pianoRoll.iloc[pitch, start:end] = 1
+      _piano_roll.iloc[pitch, start:end] = 1
     else: # current event is a rest
       if i == 0:
         continue
       pitch = int(part.iat[i - 1])
       if pitch == -1:
         continue
-      if _pianoRoll.iat[pitch, start] != 1: # don't overwrite a note with a rest
-        _pianoRoll.iat[pitch, start] = 0
+      if _piano_roll.iat[pitch, start] != 1: # don't overwrite a note with a rest
+        _piano_roll.iat[pitch, start] = 0
 
-_memos['pianoRoll'] = _pianoRoll.ffill(axis=1).fillna(0).astype(int)
-freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)]
-_memos['pianoRoll'].index = freqs
+piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
+freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
+piano_roll.index = freqs
 sampled = pd.DataFrame(columns=[t/20  for t in range(0, int(score.highestTime) * 20 + 1)], index=freqs)
-sampled.update(_memos['pianoRoll'])
-_memos['pianoRoll'] = sampled.ffill(axis=1)
-pr = _memos['pianoRoll'].copy()
+sampled.update(piano_roll)
+piano_roll = sampled.ffill(axis=1)
+pr = piano_roll.copy()
 if width > 0:
   pr = pr.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
 print(pr.iloc[65:75, :21])
 pdb.set_trace()
-# _memos['pianoRoll'].to_csv('path_to_csv_file.csv')
+# piano_roll.to_csv('path_to_csv_file.csv')

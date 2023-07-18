@@ -3,7 +3,7 @@ import music21 as m21
 import pdb
 
 # adjustable constants
-score_path = './test_files/exampleOneNote.mid'
+score_path = './test_files/example3Note.mid'
 aFreq = 440
 width = 2
 
@@ -57,7 +57,8 @@ _piano_roll.fillna(0, inplace=True)
 
 for h, col in enumerate(midi_pitches.columns):
   part = midi_pitches.loc[:, col].dropna()
-  partIndexInPianoRoll = part.index.to_series().apply(lambda i: _piano_roll.index.get_loc(i))
+  pdb.set_trace()
+  partIndexInPianoRoll = part.index.to_series().apply(lambda i: _piano_roll.columns.get_loc(i))
   for i, row in enumerate(part.index[:-1]):
     pitch = int(part.at[row])
     start = partIndexInPianoRoll[row]
@@ -82,6 +83,7 @@ piano_roll = sampled.ffill(axis=1)
 pr = piano_roll.copy()
 if width > 0:
   pr = pr.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
-print(pr.iloc[65:75, :21])
+test = pr.iloc[65:80, 60:90].copy()
+print(test)
 pdb.set_trace()
 # piano_roll.to_csv('path_to_csv_file.csv')

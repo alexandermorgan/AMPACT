@@ -6,6 +6,7 @@ import pdb
 score_path = './test_files/example6Note.mid'
 aFreq = 440
 width = 0
+bpm = 60
 
 # basic indexing of score
 score = m21.converter.parse(score_path)
@@ -77,7 +78,8 @@ piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
 piano_roll.index = freqs
 col_set = set(piano_roll.columns)  # this set makes sure that any timepoints in piano_roll cols will persist
-col_set.update([t/20  for t in range(0, int(score.highestTime) * 20 + 1)])
+slices = 60/bpm * 20
+col_set.update([t/slices  for t in range(0, int(score.highestTime * slices) + 1)])
 sampled = pd.DataFrame(columns=sorted(col_set), index=freqs)
 sampled.update(piano_roll)
 piano_roll = sampled.ffill(axis=1)

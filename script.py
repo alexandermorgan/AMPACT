@@ -1,12 +1,15 @@
 import pandas as pd
 import music21 as m21
+import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/example6Note.mid'
+score_path = './test_files/polyExample1note.mid'
 aFreq = 440
 width = 0
 bpm = 60
+winms = 100
+targetsr = 2000
 
 # basic indexing of score
 score = m21.converter.parse(score_path)
@@ -75,18 +78,18 @@ for h, col in enumerate(midi_pitches.columns):
         _piano_roll.iat[pitch, start] = 0
 
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
-freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
-piano_roll.index = freqs
+# freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
+# piano_roll.index = freqs
 col_set = set(piano_roll.columns)  # this set makes sure that any timepoints in piano_roll cols will persist
 slices = 60/bpm * 20
 col_set.update([t/slices  for t in range(0, int(score.highestTime * slices) + 1)])
-sampled = pd.DataFrame(columns=sorted(col_set), index=freqs)
+num_rows = int(2 ** round(math.log(winms / 1000 * targetsr) / math.log(2))/ 2) + 1
+sampled = pd.DataFrame(columns=sorted(col_set), index=range(num_rows)).fillna(0)
 sampled.update(piano_roll)
-piano_roll = sampled.ffill(axis=1)
-pr = piano_roll.copy()
+sampled = sampled.ffill(axis=1)
 if width > 0:
-  pr = pr.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
-test = pr.iloc[65:80, 60:90].copy()
+  sampled = sampled.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
+test = sampled.iloc[125:135, 60:90].copy()
 print(test)
 pdb.set_trace()
 # piano_roll.to_csv('path_to_csv_file.csv')

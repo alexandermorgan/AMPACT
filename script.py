@@ -4,9 +4,9 @@ import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/polyExample1note.mid'
+score_path = './test_files/monophonic1note.mid'
 aFreq = 440
-width = 0
+width = 3
 bpm = 60
 winms = 100
 targetsr = 2000
@@ -48,8 +48,9 @@ def _midiPitchHelper(noteOrRest):
   return noteOrRest.pitch.midi
 midi_pitches = m21ObjectsNoTies.applymap(_midiPitchHelper, na_action='ignore')
 midi_pitches = midi_pitches.ffill().astype(int)
-midi_pitches.loc[score.highestTime, :] = -1   # add "rests" to end to effectively give correct duration to last note in each voice
-
+if not all([rest == -1 for rest in midi_pitches.iloc[-1, :]]):
+    midi_pitches.loc[score.highestTime, :] = -1   # add "rests" to end if the last row is not already all rests
+    
 # construct midi piano roll / mask, NB: there are 128 possible midi pitches
 _piano_roll = pd.DataFrame(index=range(128), columns=midi_pitches.index.values)
 def _reshape(row):
@@ -82,14 +83,15 @@ piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 # piano_roll.index = freqs
 col_set = set(piano_roll.columns)  # this set makes sure that any timepoints in piano_roll cols will persist
 slices = 60/bpm * 20
-col_set.update([t/slices  for t in range(0, int(score.highestTime * slices) + 1)])
-num_rows = int(2 ** round(math.log(winms / 1000 * targetsr) / math.log(2))/ 2) + 1
-sampled = pd.DataFrame(columns=sorted(col_set), index=range(num_rows)).fillna(0)
+col_set.update([t/slices for t in range(0, int(piano_roll.columns[-1] * slices) + 1)])
+num_rows = int(2 ** round(math.log(winms / 1000 * targetsr) / math.log(2) - 1)) + 1
+sampled = pd.DataFrame(columns=sorted(col_set), index=range(num_rows))
 sampled.update(piano_roll)
-sampled = sampled.ffill(axis=1)
+sampled = sampled.ffill(axis=1).fillna(0).astype(int)
+# pdb.set_trace()
 if width > 0:
   sampled = sampled.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
 test = sampled.iloc[125:135, 60:90].copy()
-print(test)
+print(sampled)
 pdb.set_trace()
 # piano_roll.to_csv('path_to_csv_file.csv')

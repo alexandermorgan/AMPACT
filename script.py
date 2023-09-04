@@ -5,13 +5,13 @@ import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/polyExample1note.mid'
+score_path = './test_files/polyExample2voices1note.mid'
 aFreq = 440
 bpm = 60
-winms = 200
+winms = 100
 sample_rate = 4000
-num_harmonics = 3
-width = 3
+num_harmonics = 1
+width = 1
 base_note = 0
 tuning_factor = 1
 fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
@@ -57,7 +57,7 @@ if not all([rest == -1 for rest in midi_pitches.iloc[-1, :]]):
     midi_pitches.loc[score.highestTime, :] = -1   # add "rests" to end if the last row is not already all rests
 
 # construct midi piano roll / mask, NB: there are 128 possible midi pitches
-_piano_roll = pd.DataFrame(index=range(128), columns=midi_pitches.index.values)
+_piano_roll = pd.DataFrame(index=range(1, 129), columns=midi_pitches.index.values)
 def _reshape(row):
   for midiNum in row.values:
     if midiNum > -1:
@@ -73,15 +73,15 @@ for h, col in enumerate(midi_pitches.columns):
     start = partIndexInPianoRoll[row]
     end = partIndexInPianoRoll[part.index[i + 1]]
     if pitch > -1:
-      _piano_roll.iloc[pitch, start:end] = 1
+      _piano_roll.loc[pitch, start:end] = 1
     else: # current event is a rest
       if i == 0:
         continue
-      pitch = int(part.iat[i - 1])
+      pitch = int(part.at[i - 1])
       if pitch == -1:
         continue
-      if _piano_roll.iat[pitch, start] != 1: # don't overwrite a note with a rest
-        _piano_roll.iat[pitch, start] = 0
+      if _piano_roll.at[pitch, start] != 1: # don't overwrite a note with a rest
+        _piano_roll.at[pitch, start] = 0
 
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 
@@ -117,11 +117,11 @@ for row in range(base_note, sampled.shape[0]):
 
 
 # debugging print statements
-# print({'winms': winms, 'sample_rate': sample_rate, 'num_harmonics':num_harmonics, 'width': width, 'piece': score_path})
-# m2 = mask[mask.sum(axis=1) > 0]
-# ser = m2.index.to_series()
-# ends = m2[(ser != (ser.shift() + 1)) | (ser != (ser.shift(-1) -1))]
-# print(ends)
-# vert = ends.T
-# print('shape ->', mask.shape)
-# pdb.set_trace()
+print({'winms': winms, 'sample_rate': sample_rate, 'num_harmonics':num_harmonics, 'width': width, 'piece': score_path})
+m2 = mask[mask.sum(axis=1) > 0]
+ser = m2.index.to_series()
+ends = m2[(ser != (ser.shift() + 1)) | (ser != (ser.shift(-1) -1))]
+print(ends)
+vert = ends.T
+print('shape ->', mask.shape)
+pdb.set_trace()

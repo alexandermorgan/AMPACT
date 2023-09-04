@@ -5,17 +5,17 @@ import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/monophonic1note.mid'
+score_path = './test_files/polyExample1note.mid'
 aFreq = 440
-width = 1
 bpm = 60
-winms = 100
+winms = 200
 sample_rate = 4000
-base_note = 1
+num_harmonics = 3
+width = 3
+base_note = 0
 tuning_factor = 1
-num_harmonics = 1
 fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
-length = fftlen / 2 + 1
+
 # basic indexing of score
 score = m21.converter.parse(score_path)
 parts = score.getElementsByClass(m21.stream.Part)
@@ -84,6 +84,8 @@ for h, col in enumerate(midi_pitches.columns):
         _piano_roll.iat[pitch, start] = 0
 
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
+
+# sample the score according to bpm, sample_rate, and winms
 # freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
 # piano_roll.index = freqs
 col_set = set(piano_roll.columns)  # this set makes sure that any timepoints in piano_roll cols will persist
@@ -94,74 +96,32 @@ sampled = pd.DataFrame(columns=sorted(col_set), index=range(num_rows))
 sampled.update(piano_roll)
 sampled = sampled.ffill(axis=1).fillna(0).astype(int)
 
-# width_semitone_factor = 2**(width/24) 
-# mask = sampled * 0
-# freqs = []
-# for row in range(base_note - 1, base_note + 127):    # there are 128 distinct midi_pitches 
-#   note = base_note - 1 + row
-#   freq = tuning_factor * 2**(note/12) * aFreq / 2**(69/12)
-#   freqs.append(freq)
-#   if sum(sampled.iloc[row]) > 0:
-#     row_mask = sampled.loc[row] > 0
-#     for harmonic in range(2, num_harmonics + 2):
-#       min_freq = math.floor(harmonic * freq / width_semitone_factor / sample_rate * num_rows)
-#       max_freq = math.ceil(harmonic * freq * width_semitone_factor / sample_rate * num_rows)
-#       print({'width': width, 'note':note, 'freq':freq, 'harmonic':harmonic, 'min':min_freq, 'max':max_freq})
-#       if min_freq <= num_rows:
-#         max_freq = min(max_freq, num_rows)
-#         mask.loc[min_freq:max_freq, row_mask] = 1
-
+# construct a mask that applies width and harmonics
 width_semitone_factor = 2 ** ((width / 2) / 12)
 noprows = sampled.shape[0]
 mask = sampled * 0
 
-for row in range(base_note - 1, base_note - 1 + sampled.shape[0]):
-  note = base_note - 1 + row
+for row in range(base_note, sampled.shape[0]):
+  note = base_note + row
   # MIDI note to Hz: MIDI 69 = 440 Hz
   freq = tuning_factor * (2 ** (note / 12)) * aFreq / (2 ** (69 / 12))
-  if sampled.iloc[row - base_note + 1, :].sum() > 0:
+  if sampled.loc[row, :].sum() > 0:
     mcol = pd.Series(0, index=range(noprows))
-    for harm in range(2, num_harmonics + 2):
-      minbin = 1 + math.floor(harm * freq / width_semitone_factor / sample_rate * length)
-      maxbin = 1 + math.ceil(harm * freq * width_semitone_factor / sample_rate * length)
+    for harm in range(1, num_harmonics + 1):
+      minbin = math.floor(harm * freq / width_semitone_factor / sample_rate * fftlen)
+      maxbin = math.ceil(harm * freq * width_semitone_factor / sample_rate * fftlen)
       if minbin <= noprows:
         maxbin = min(maxbin, noprows)
-        mcol.iloc[minbin - 1 : maxbin] = 1
-    print({'second': 2, 'width': width, 'note':note, 'freq':freq, 'harmonic':harmonic, 'min':min_freq, 'max':max_freq})
-    mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row - base_note + 1])[0]] = 1
-    ### mask[np.where(mcol), np.where(sampled[row - base_note + 1])] = 1
-    # mask = mask | (mcol * sampled[row - base_note + 1])
+        mcol.loc[minbin : maxbin] = 1
+    mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
 
 
-
-    #     if N.iloc[nrow - BN + 1].sum() > 0:
-    #         mcol = pd.Series(0, index=range(noprows))
-    #         for harm in range(1, NH + 1):
-    #             minbin = 1 + int(np.floor(harm * freq / widthsemifactor / SR * L))
-    #             maxbin = 1 + int(np.ceil(harm * freq * widthsemifactor / SR * L))
-    #             if minbin <= noprows:
-    #                 maxbin = min(maxbin, noprows)
-    #                 mcol.iloc[minbin - 1 : maxbin] = 1
-    #         M.iloc[np.where(mcol), np.where(N.iloc[nrow - BN + 1])] = 1
-    #         # M = M | (mcol * N.iloc[nrow - BN + 1])
-
-    # return M
-
-# Example usage with pandas DataFrame
-# Assume you have a pandas DataFrame 'N' representing the spectrogram-like array
-# M = notes2mask(N)
-
-
-
-
-# print(mask.loc[100:150, :])
-m2 = mask.replace(0, pd.NA).dropna(how='all')
-print(m2)
-
-# if width > 0:
-#   sampled = sampled.replace(0, pd.NA).ffill(limit=width).bfill(limit=width).fillna(0)
-test = sampled.iloc[50:62, :].copy()
-# print(sampled)
-# print(freqs)
-pdb.set_trace()
-# piano_roll.to_csv('path_to_csv_file.csv')
+# debugging print statements
+# print({'winms': winms, 'sample_rate': sample_rate, 'num_harmonics':num_harmonics, 'width': width, 'piece': score_path})
+# m2 = mask[mask.sum(axis=1) > 0]
+# ser = m2.index.to_series()
+# ends = m2[(ser != (ser.shift() + 1)) | (ser != (ser.shift(-1) -1))]
+# print(ends)
+# vert = ends.T
+# print('shape ->', mask.shape)
+# pdb.set_trace()

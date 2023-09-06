@@ -16,12 +16,14 @@ base_note = 0
 tuning_factor = 1
 fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
 
-# basic indexing of score to music21 format
+# conversion of score to music21 format
 score = m21.converter.parse(score_path)
 part_streams = score.getElementsByClass(m21.stream.Part)
 semi_flat_parts = [part.semiFlat for part in part_streams]
-part_names = [part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1)
-      for i, part in enumerate(semi_flat_parts)]
+part_names = []
+for i, part in enumerate(semi_flat_parts):
+  name = part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1)
+  part_names.append(name)
 parts = []
 for i, flat_part in enumerate(semi_flat_parts):
   elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])

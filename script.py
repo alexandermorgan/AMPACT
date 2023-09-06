@@ -20,14 +20,10 @@ fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
 score = m21.converter.parse(score_path)
 part_streams = score.getElementsByClass(m21.stream.Part)
 semi_flat_parts = [part.semiFlat for part in part_streams]
+pn2 = [part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1) for i, part in enumerate(semi_flat_parts)]
 part_names = []
 for i, part in enumerate(semi_flat_parts):
-  name = part.partName or 'Part-' + str(i + 1)
-  if name in part_names:
-    name = 'Part-' + str(i + 1)
-  elif '_' in name:
-    print('\n*** Warning: it is problematic to have an underscore in a part name so _ was replaced with -. ***\n')
-    name = name.replace('_', '-')
+  name = part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1)
   part_names.append(name)
 parts = []
 for i, flat_part in enumerate(semi_flat_parts):

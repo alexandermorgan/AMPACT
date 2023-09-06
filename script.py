@@ -16,15 +16,12 @@ base_note = 0
 tuning_factor = 1
 fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
 
-# basic indexing of score
+# basic indexing of score to music21 format
 score = m21.converter.parse(score_path)
 part_streams = score.getElementsByClass(m21.stream.Part)
 semi_flat_parts = [part.semiFlat for part in part_streams]
-pn2 = [part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1) for i, part in enumerate(semi_flat_parts)]
-part_names = []
-for i, part in enumerate(semi_flat_parts):
-  name = part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1)
-  part_names.append(name)
+part_names = [part.partName if (part.partName and part.partName not in part_names) else 'Part-' + str(i + 1)
+      for i, part in enumerate(semi_flat_parts)]
 parts = []
 for i, flat_part in enumerate(semi_flat_parts):
   elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
@@ -43,7 +40,6 @@ for i, flat_part in enumerate(semi_flat_parts):
   df = df.add_prefix(part_names[i] + '_')
   parts.append(df)
 m21_objects = pd.concat(parts, names=part_names, axis=1)
-pdb.set_trace()
 
 def _remove_tied(noteOrRest):
   if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':

@@ -33,9 +33,6 @@ for i, flat_part in enumerate(semi_flat_parts):
     else:
       events.append((nrc,))
       offsets.append(round(float(nrc.offset), 4))
-  ser = pd.Series(events, index=offsets, name=part_names[i])
-  # # for now remove multiple events at the same offset in a given part
-  # ser = ser[~ser.index.duplicated()]
   df = pd.DataFrame(events, index=offsets)
   df = df.add_prefix(part_names[i] + '_')
   parts.append(df)

@@ -5,21 +5,21 @@ import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/polyExample2voices1note.mid'
+score_path = './test_files/polyphonic4voices1note.mei'
 aFreq = 440
 bpm = 60
 winms = 100
-sample_rate = 4000
-num_harmonics = 1
-width = 1
+sample_rate = 2000
+num_harmonics = 3
+width = 3
 base_note = 0
 tuning_factor = 1
 fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
 
 # basic indexing of score
 score = m21.converter.parse(score_path)
-parts = score.getElementsByClass(m21.stream.Part)
-semi_flat_parts = [part.semiFlat for part in parts]
+part_streams = score.getElementsByClass(m21.stream.Part)
+semi_flat_parts = [part.semiFlat for part in part_streams]
 part_names = []
 for i, part in enumerate(semi_flat_parts):
   name = part.partName or 'Part-' + str(i + 1)
@@ -29,16 +29,26 @@ for i, part in enumerate(semi_flat_parts):
     print('\n*** Warning: it is problematic to have an underscore in a part name so _ was replaced with -. ***\n')
     name = name.replace('_', '-')
   part_names.append(name)
-part_series = []
+parts = []
 for i, flat_part in enumerate(semi_flat_parts):
-  notesAndRests = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
-  notesAndRests = [max(noteOrRest.notes) if noteOrRest.isChord else noteOrRest for noteOrRest in notesAndRests]
-  ser = pd.Series(notesAndRests, name=part_names[i])
-  ser.index = ser.apply(lambda noteOrRest: round(float(noteOrRest.offset), 4))
-  # for now remove multiple events at the same offset in a given part
-  ser = ser[~ser.index.duplicated()]
-  part_series.append(ser)
-m21_objects = pd.concat(part_series, names=part_names, axis=1)
+  elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
+  events, offsets = [], []
+  for nrc in elements:
+    if nrc.isChord:
+      events.append(nrc.notes)
+      offsets.append(round(float(nrc.offset), 4))
+    else:
+      events.append((nrc,))
+      offsets.append(round(float(nrc.offset), 4))
+  ser = pd.Series(events, index=offsets, name=part_names[i])
+  # # for now remove multiple events at the same offset in a given part
+  # ser = ser[~ser.index.duplicated()]
+  df = pd.DataFrame(events, index=offsets)
+  df = df.add_prefix(part_names[i] + '_')
+  parts.append(df)
+m21_objects = pd.concat(parts, names=part_names, axis=1)
+pdb.set_trace()
+
 def _remove_tied(noteOrRest):
   if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
     return pd.NA
@@ -57,7 +67,7 @@ if not all([rest == -1 for rest in midi_pitches.iloc[-1, :]]):
     midi_pitches.loc[score.highestTime, :] = -1   # add "rests" to end if the last row is not already all rests
 
 # construct midi piano roll / mask, NB: there are 128 possible midi pitches
-_piano_roll = pd.DataFrame(index=range(1, 129), columns=midi_pitches.index.values)
+_piano_roll = pd.DataFrame(index=range(128), columns=midi_pitches.index.values)
 def _reshape(row):
   for midiNum in row.values:
     if midiNum > -1:
@@ -71,17 +81,20 @@ for h, col in enumerate(midi_pitches.columns):
   for i, row in enumerate(part.index[:-1]):
     pitch = int(part.at[row])
     start = partIndexInPianoRoll[row]
-    end = partIndexInPianoRoll[part.index[i + 1]]
+    end = partIndexInPianoRoll[part.index[i]]
     if pitch > -1:
       _piano_roll.loc[pitch, start:end] = 1
     else: # current event is a rest
       if i == 0:
         continue
-      pitch = int(part.at[i - 1])
+      pitch = int(part.at[i - 1])  # double-check why this is -1
       if pitch == -1:
         continue
-      if _piano_roll.at[pitch, start] != 1: # don't overwrite a note with a rest
-        _piano_roll.at[pitch, start] = 0
+      try:
+        if _piano_roll.iat[pitch, start] != 1: # don't overwrite a note with a rest
+          _piano_roll.iat[pitch, start] = 0
+      except:
+        pdb.set_trace()
 
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 
@@ -121,7 +134,9 @@ print({'winms': winms, 'sample_rate': sample_rate, 'num_harmonics':num_harmonics
 m2 = mask[mask.sum(axis=1) > 0]
 ser = m2.index.to_series()
 ends = m2[(ser != (ser.shift() + 1)) | (ser != (ser.shift(-1) -1))]
-print(ends)
+sums = ends.sum()
+corners = ends.loc[:, ((sums != sums.shift()) | (sums != sums.shift(-1)))]
+print(corners)
 vert = ends.T
 print('shape ->', mask.shape)
 pdb.set_trace()

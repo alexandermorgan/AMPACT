@@ -5,7 +5,7 @@ import math
 import pdb
 
 # adjustable constants
-score_path = './test_files/polyphonic4voices1note.mei'
+score_path = './test_files/polyphonic4voices1note.mid'
 aFreq = 440
 bpm = 60
 winms = 100
@@ -37,8 +37,12 @@ for i, flat_part in enumerate(semi_flat_parts):
       offsets.append(round(float(nrc.offset), 4))
   df = pd.DataFrame(events, index=offsets)
   df = df.add_prefix(part_names[i] + '_')
+  # # for now remove multiple events at the same offset in a given part
+  # df = df[~df.index.duplicated(keep='last')]
   parts.append(df)
 m21_objects = pd.concat(parts, names=part_names, axis=1)
+
+lyrics = m21_objects.applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
 
 def _remove_tied(noteOrRest):
   if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
@@ -81,11 +85,8 @@ for h, col in enumerate(midi_pitches.columns):
       pitch = int(part.at[i - 1])  # double-check why this is -1
       if pitch == -1:
         continue
-      try:
-        if _piano_roll.iat[pitch, start] != 1: # don't overwrite a note with a rest
-          _piano_roll.iat[pitch, start] = 0
-      except:
-        pdb.set_trace()
+      if _piano_roll.iat[pitch, start] != 1: # don't overwrite a note with a rest
+        _piano_roll.iat[pitch, start] = 0
 
 piano_roll = _piano_roll.ffill(axis=1).fillna(0).astype(int)
 

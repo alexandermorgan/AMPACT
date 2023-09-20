@@ -192,9 +192,9 @@ class Score:
     return ret
 
 
-piece = Score(score_path='./test_files/mozart.krn')
-harm = piece.harmonies()
-pdb.set_trace()
+# piece = Score(score_path='./test_files/mozart.krn')
+# harm = piece.harmonies()
+# pdb.set_trace()
   # debugging print statements
   # m2 = mask[mask.sum(axis=1) > 0]
   # ser = m2.index.to_series()

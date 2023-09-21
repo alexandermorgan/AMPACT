@@ -53,18 +53,21 @@ class Score:
       for spine in humFile.spineCollection:
         if spine.spineType in ('harm', 'function'):
           vals, valPositions = [], []
-          keys, keyPositions = [], []
+          keyVals, keyPositions = [], []
           start = False
-          for event in spine.eventList:
+          for i, event in enumerate(spine.eventList):
             contents = event.contents
             if contents.endswith(':') and contents.startswith('*'):
               start = True
-              keys.append(contents)
-              keyPositions.append(event.position)
+              # there usually won't be any m21 objects at the same position as the key events,
+              # so use the position from the next item in eventList if there is a next item.
+              if i + 1 < len(spine.eventList):
+                keyVals.append(contents)
+                keyPositions.append(spine.eventList[i+1].position)
               continue
             elif not start or '!' in contents or '=' in  contents or '*-' == contents:
               continue
-            elif start:
+            else:
               vals.append(contents)
               valPositions.append(event.position)
 
@@ -73,13 +76,19 @@ class Score:
           df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
           self.analyses[spine.spineType] = pd.Series(joined[name].values, index=joined.Offset)
+          keyName = name[:4] + 'Key'  # 'HarmKey' or 'FuncKey'
+          df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
+          joined = df1.join(df3, on='Priority')
+          self.analyses[keyName] = pd.Series(joined[keyName].values, index=joined.Offset)
 
       if 'functions' not in self.analyses:
         self.analyses['functions'] = pd.Series()
       if 'harmonies' not in self.analyses:
         self.analyses['harmonies'] = pd.Series()
-      if 'keys' not in self.analyses:
-        self.analyses['keys'] = pd.Series()
+      if 'FuncKey' not in self.analyses:
+        self.analyses['FuncKey'] = pd.Series()
+      if 'HarmKey' not in self.analyses:
+        self.analyses['HarmKey'] = pd.Series()
   
   def m21_objects(self):
     if 'm21_objects' not in self.analyses:
@@ -104,12 +113,26 @@ class Score:
     self.analyses['_priority'] = priority
     return priority
 
+  def harmKeys(self):
+    '''\tGet the keys the **harm spine is done in as a pandas series if this piece
+    is a kern file and has a **harm spine. Otherwise return an empty series.'''
+    if 'HarmKey' not in self.analyses:
+      self._import_function_harm_spines()
+    return self.analyses['HarmKey']
+
   def harmonies(self):
     '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
     piece is a kern file and has a **harm spine. Otherwise return an empty series.'''
     if 'harm' not in self.analyses:
       self._import_function_harm_spines()
     return self.analyses['harm']
+
+  def funcKeys(self):
+    '''\tGet the keys the **function spine is done in as a pandas series if this piece
+    is a kern file and has a **function spine. Otherwise return an empty series.'''
+    if 'FuncKey' not in self.analyses:
+      self._import_function_harm_spines()
+    return self.analyses['FuncKey']
 
   def functions(self):
     '''\tGet the functional analysis from the **function spine as a pandas series if this
@@ -193,18 +216,21 @@ class Score:
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self.analyses[key] = mask
     ret = self.analyses[key].copy()
+    row0 = ret.iloc[0]
     if append_function:
       func = self.functions()
       if func.empty:
         print('No **function spine found, returning mask without function analysis.')
       else:
-        ret.loc['Function'] = func.reindex_like(ret.iloc[0]).ffill()
+        ret.loc['FuncKey'] = self.funcKeys().reindex_like(row0).ffill()
+        ret.loc['Function'] = func.reindex_like(row0).ffill()
     if append_harm:
       harm = self.harmonies()
       if harm.empty:
         print('No **harm spine found, returning mask without harmonic analysis.')
       else:
-        ret.loc['Harmony'] = harm.reindex_like(ret.iloc[0]).ffill()
+        ret.loc['HarmKey'] = self.harmKeys().reindex_like(row0).ffill()
+        ret.loc['Harmony'] = harm.reindex_like(row0).ffill()
     return ret
 
 

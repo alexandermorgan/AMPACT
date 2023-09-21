@@ -51,30 +51,28 @@ class Score:
       humFile.parseFilename()
       objs = self.m21_objects()
       for spine in humFile.spineCollection:
-        if spine.spineType == 'harm':
-          # harmEvents = [event.contents for event in spine.eventList
-          #               if event.contents != '*-' and '=' not in event.contents]
-          harmonies, harmony_positions = [], []
-          keys, key_positions = [], []
+        if spine.spineType in ('harm', 'function'):
+          vals, valPositions = [], []
+          keys, keyPositions = [], []
           start = False
           for event in spine.eventList:
             contents = event.contents
             if contents.endswith(':') and contents.startswith('*'):
               start = True
               keys.append(contents)
-              key_positions.append(event.position)
+              keyPositions.append(event.position)
               continue
             elif not start or '!' in contents or '=' in  contents or '*-' == contents:
               continue
             elif start:
-              harmonies.append(contents)
-              harmony_positions.append(event.position)
+              vals.append(contents)
+              valPositions.append(event.position)
 
-          priority = self.m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
-          df1 = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
-          df2 = pd.DataFrame({'Harmony': harmonies}, index=harmony_positions)
+          df1 = self._priority()
+          name = spine.spineType.title()
+          df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
-          self.analyses['harmonies'] = pd.Series(joined.Harmony.values, index=joined.Offset)
+          self.analyses[spine.spineType] = pd.Series(joined[name].values, index=joined.Offset)
 
       if 'functions' not in self.analyses:
         self.analyses['functions'] = pd.Series()
@@ -93,21 +91,33 @@ class Score:
       self.analyses['lyrics'] = self.m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self.analyses['lyrics']
 
+  def _priority(self):
+    '''\tFor .krn files, get the line numbers of the events in the piece, which music21
+    often calls "priority". For other encoding formats return an empty dataframe.'''
+    if '_priority' in self.analyses:
+      return self.analyses['_priority']
+    if self.file_extension != 'krn':
+      priority = pd.DataFrame()
+    else:
+      priority = self.m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
+      priority = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
+    self.analyses['_priority'] = priority
+    return priority
+
   def harmonies(self):
     '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
     piece is a kern file and has a **harm spine. Otherwise return an empty series.'''
-    if 'harmonies' not in self.analyses:
+    if 'harm' not in self.analyses:
       self._import_function_harm_spines()
-    return self.analyses['harmonies']
+    return self.analyses['harm']
 
-  # def functions(self):
-  #   '''\tPut the **function labels from kern files in a pandas.Series. Returns
-  #   an empty series if the piece isn't a kern file or if it's a kern file with
-  #   no **function spine.'''
-  #   if 'functions' not in self.analyses:
-  #     if not self.hasFunctionsSpine:
-  #       self.analyses['functions'] = pd.Series()
-  #   return 
+  def functions(self):
+    '''\tGet the functional analysis from the **function spine as a pandas series if this
+    piece is a kern file and has a **function spine. Otherwise return an empty series.'''
+    if 'function' not in self.analyses:
+      self._import_function_harm_spines()
+    return self.analyses['function']
+
   def _remove_tied(self, noteOrRest):
     if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
       return pd.NA
@@ -157,7 +167,8 @@ class Score:
     return self.analyses[key]
 
   def mask(self, winms=100, sample_rate=2000, num_harmonics=1, width=0,
-            bpm=60, aFreq=440, base_note=0, tuning_factor=1, append_harm=True):
+            bpm=60, aFreq=440, base_note=0, tuning_factor=1,
+            append_function=True, append_harm=True):
     '''\tConstruct a mask from the sampled piano roll using width and harmonics.'''
     key = ('mask', winms, sample_rate, num_harmonics, width, bpm, aFreq, base_note, tuning_factor)
     if key not in self.analyses:

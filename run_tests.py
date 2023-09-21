@@ -46,6 +46,7 @@ Score('./test_files/polyExample3voices1note.mid')
 Score('./test_files/polyphonic4voices1note.mid')
 Score('./test_files/polyphonic4voices1note.mei')
 Score('./test_files/busnoys.krn')
+Score('./test_files/B063_00_01a_a.krn')  # harmonic analysis is encoded and analyzed as lyrics
 Score('./test_files/B063_00_01a_a.mei')  # harmonic analysis is encoded and analyzed as lyrics
 test_lyrics('./test_files/busnoys.krn', (438, 4), 'In', 'cum.')
 test_harm_spine('./test_files/M025_00_01a_a-repeated.krn',

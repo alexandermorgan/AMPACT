@@ -193,13 +193,18 @@ class Score:
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self.analyses[key] = mask
     ret = self.analyses[key].copy()
+    if append_function:
+      func = self.functions()
+      if func.empty:
+        print('No **function spine found, returning mask without function analysis.')
+      else:
+        ret.loc['Function'] = func.reindex_like(ret.iloc[0]).ffill()
     if append_harm:
       harm = self.harmonies()
       if harm.empty:
         print('No **harm spine found, returning mask without harmonic analysis.')
       else:
-        ret.loc['Harmony'] = harm
-        ret.loc['Harmony'] = ret.loc['Harmony'].ffill()
+        ret.loc['Harmony'] = harm.reindex_like(ret.iloc[0]).ffill()
     return ret
 
 

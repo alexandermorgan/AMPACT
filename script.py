@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import music21 as m21
-# from m21.humdrum.spineParser.HumdrumFile
 import math
 import pdb
 
@@ -52,16 +51,17 @@ class Score:
       objs = self.m21_objects()
       for spine in humFile.spineCollection:
         if spine.spineType in ('harm', 'function'):
-          vals, valPositions = [], []
-          keyVals, keyPositions = [], []
           start = False
+          vals, valPositions = [], []
+          if spine.spineType == 'harm':
+            keyVals, keyPositions = [], []
           for i, event in enumerate(spine.eventList):
             contents = event.contents
             if contents.endswith(':') and contents.startswith('*'):
               start = True
               # there usually won't be any m21 objects at the same position as the key events,
               # so use the position from the next item in eventList if there is a next item.
-              if i + 1 < len(spine.eventList):
+              if spine.spineType == 'harm' and i + 1 < len(spine.eventList):
                 keyVals.append(contents)
                 keyPositions.append(spine.eventList[i+1].position)
               continue
@@ -75,20 +75,23 @@ class Score:
           name = spine.spineType.title()
           df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
-          self.analyses[spine.spineType] = pd.Series(joined[name].values, index=joined.Offset)
-          keyName = name[:4] + 'Key'  # 'HarmKey' or 'FuncKey'
-          df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
-          joined = df1.join(df3, on='Priority')
-          self.analyses[keyName] = pd.Series(joined[keyName].values, index=joined.Offset)
+          ser = pd.Series(joined[name].values, index=joined.Offset)
+          ser.index.name =  ''
+          self.analyses[spine.spineType] = ser
+          if len(keyVals):
+            keyName = 'HarmKeys'
+            df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
+            joined = df1.join(df3, on='Priority')
+            keySer = pd.Series(joined[keyName].values, index=joined.Offset).dropna()
+            keySer.index.name = ''
+            self.analyses[keyName] = keySer
 
       if 'functions' not in self.analyses:
         self.analyses['functions'] = pd.Series()
       if 'harmonies' not in self.analyses:
         self.analyses['harmonies'] = pd.Series()
-      if 'FuncKey' not in self.analyses:
-        self.analyses['FuncKey'] = pd.Series()
-      if 'HarmKey' not in self.analyses:
-        self.analyses['HarmKey'] = pd.Series()
+      if 'harmKeys' not in self.analyses:
+        self.analyses['harmKeys'] = pd.Series()
   
   def m21_objects(self):
     if 'm21_objects' not in self.analyses:
@@ -116,30 +119,39 @@ class Score:
   def harmKeys(self):
     '''\tGet the keys the **harm spine is done in as a pandas series if this piece
     is a kern file and has a **harm spine. Otherwise return an empty series.'''
-    if 'HarmKey' not in self.analyses:
+    if 'harmKeys' not in self.analyses:
       self._import_function_harm_spines()
-    return self.analyses['HarmKey']
+    return self.analyses['harmKeys']
 
-  def harmonies(self):
+  def harmonies(self, bpm=60):
     '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
-    piece is a kern file and has a **harm spine. Otherwise return an empty series.'''
+    piece is a kern file and has a **harm spine. Otherwise return an empty series. The
+    index of the series will match the columns of the sampled piano roll created with the
+    same bpm as that passed.'''
     if 'harm' not in self.analyses:
       self._import_function_harm_spines()
-    return self.analyses['harm']
+    key = ('harm', bpm)
+    if key not in self.analyses:
+      return self.analyses[key]
+    harm = self.analyses['harm']
+    timepoints = self.sampled(bpm).iloc[0, :]
+    self.analyses[key] = harm.reindex_like(timepoints).ffill()
+    return self.analyses[key]
 
-  def funcKeys(self):
-    '''\tGet the keys the **function spine is done in as a pandas series if this piece
-    is a kern file and has a **function spine. Otherwise return an empty series.'''
-    if 'FuncKey' not in self.analyses:
-      self._import_function_harm_spines()
-    return self.analyses['FuncKey']
-
-  def functions(self):
+  def functions(self, bpm=60):
     '''\tGet the functional analysis from the **function spine as a pandas series if this
-    piece is a kern file and has a **function spine. Otherwise return an empty series.'''
+    piece is a kern file and has a **function spine. Otherwise return an empty series. The
+    index of the series will match the columns of the sampled piano roll created with the
+    same bpm as that passed.'''
     if 'function' not in self.analyses:
       self._import_function_harm_spines()
-    return self.analyses['function']
+    key = ('functions', bpm)
+    if key not in self.analyses:
+      return self.analyses[key]
+    functions = self.analyses['functions']
+    timepoints = self.sampled(bpm).iloc[0, :]
+    self.analyses[key] = functions.reindex_like(timepoints).ffill()
+    return self.analyses[key]
 
   def _remove_tied(self, noteOrRest):
     if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
@@ -160,7 +172,6 @@ class Score:
       self.analyses['midi_pitches'] = midi_pitches
     return self.analyses['midi_pitches']
 
-
   def piano_roll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
     if 'piano_roll' not in self.analyses:
@@ -173,9 +184,9 @@ class Score:
       self.analyses['piano_roll'] = piano_roll
     return self.analyses['piano_roll']
 
-  def sampled(self, winms=100, sample_rate=2000, bpm=60):
+  def sampled(self, bpm=60):
     '''\tSample the score according to bpm, sample_rate, and winms.'''
-    key = ('sampled', winms, sample_rate, bpm)
+    key = ('sampled', bpm)
     if key not in self.analyses:
       # freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
       # piano_roll.index = freqs
@@ -190,13 +201,12 @@ class Score:
     return self.analyses[key]
 
   def mask(self, winms=100, sample_rate=2000, num_harmonics=1, width=0,
-            bpm=60, aFreq=440, base_note=0, tuning_factor=1,
-            append_function=True, append_harm=True):
+            bpm=60, aFreq=440, base_note=0, tuning_factor=1):
     '''\tConstruct a mask from the sampled piano roll using width and harmonics.'''
     key = ('mask', winms, sample_rate, num_harmonics, width, bpm, aFreq, base_note, tuning_factor)
     if key not in self.analyses:
       width_semitone_factor = 2 ** ((width / 2) / 12)
-      sampled = self.sampled(winms, sample_rate, bpm)
+      sampled = self.sampled(bpm)
       num_rows = int(2 ** round(math.log(winms / 1000 * sample_rate) / math.log(2) - 1)) + 1
       mask = pd.DataFrame(index=range(num_rows), columns=sampled.columns).fillna(0)
       fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
@@ -215,28 +225,12 @@ class Score:
               mcol.loc[minbin : maxbin] = 1
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self.analyses[key] = mask
-    ret = self.analyses[key].copy()
-    row0 = ret.iloc[0]
-    if append_function:
-      func = self.functions()
-      if func.empty:
-        print('No **function spine found, returning mask without function analysis.')
-      else:
-        ret.loc['FuncKey'] = self.funcKeys().reindex_like(row0).ffill()
-        ret.loc['Function'] = func.reindex_like(row0).ffill()
-    if append_harm:
-      harm = self.harmonies()
-      if harm.empty:
-        print('No **harm spine found, returning mask without harmonic analysis.')
-      else:
-        ret.loc['HarmKey'] = self.harmKeys().reindex_like(row0).ffill()
-        ret.loc['Harmony'] = harm.reindex_like(row0).ffill()
-    return ret
+    return self.analyses[key]
 
 
-# piece = Score(score_path='./test_files/mozart.krn')
-# harm = piece.harmonies()
-# pdb.set_trace()
+piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
+harm = piece.harmonies()
+pdb.set_trace()
   # debugging print statements
   # m2 = mask[mask.sum(axis=1) > 0]
   # ser = m2.index.to_series()

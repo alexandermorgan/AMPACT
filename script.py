@@ -43,6 +43,7 @@ class Score:
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
+    self._import_function_harm_spines()
   
   def _import_function_harm_spines(self):
     if self.file_extension == 'krn':
@@ -77,21 +78,21 @@ class Score:
           joined = df1.join(df2, on='Priority')
           ser = pd.Series(joined[name].values, index=joined.Offset)
           ser.index.name =  ''
-          self.analyses[spine.spineType] = ser
+          self.analyses[(spine.spineType, 0)] = ser
           if len(keyVals):
             keyName = 'HarmKeys'
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
             keySer = pd.Series(joined[keyName].values, index=joined.Offset).dropna()
             keySer.index.name = ''
-            self.analyses[keyName] = keySer
+            self.analyses[('harmKeys', 0)] = keySer
 
-      if 'functions' not in self.analyses:
-        self.analyses['functions'] = pd.Series()
-      if 'harmonies' not in self.analyses:
-        self.analyses['harmonies'] = pd.Series()
-      if 'harmKeys' not in self.analyses:
-        self.analyses['harmKeys'] = pd.Series()
+      if ('function', 0) not in self.analyses:
+        self.analyses[('function', 0)] = pd.Series()
+      if ('harm', 0) not in self.analyses:
+        self.analyses[('harm', 0)] = pd.Series()
+      if ('harmKeys', 0) not in self.analyses:
+        self.analyses[('harmKeys', 0)] = pd.Series()
   
   def m21_objects(self):
     if 'm21_objects' not in self.analyses:
@@ -116,41 +117,56 @@ class Score:
     self.analyses['_priority'] = priority
     return priority
 
-  def harmKeys(self):
+  def _reindex_like_sampled(self, ser, bpm=60):
+    '''\tGiven a pandas.Series, reindex it like the columns of the piano roll sampled
+    at 20 observations a second at the given bpm assuming the quarter note is the beat.
+    If an index value in the passed series is not in the columns of the sampled piano
+    roll, it will be rewritten to the nearest preceding index val and if this creates
+    duplicate index values, only the last one will be kept. Returns a forward-filled 
+    copy of the passed series. The original series is not changed.'''
+    _ser = ser.copy()
+    timepoints = self.sampled(bpm).iloc[0, :]
+    for i, val in enumerate(ser.index):
+      if val not in timepoints.index:
+        _ser.index[i] = timepoints.index.asof(val)
+    _ser = _ser[~_ser.index.duplicated(keep='last')]
+    _ser = _ser.reindex_like(timepoints).ffill()
+    return _ser
+
+  def harmKeys(self, bpm=60):
     '''\tGet the keys the **harm spine is done in as a pandas series if this piece
-    is a kern file and has a **harm spine. Otherwise return an empty series.'''
-    if 'harmKeys' not in self.analyses:
-      self._import_function_harm_spines()
-    return self.analyses['harmKeys']
+    is a kern file and has a **harm spine. Otherwise return an empty series. The
+    index of the series will match the columns of the sampled piano roll created with the
+    same bpm as that passed. If bpm is set to 0, it will return the key observations from
+    the **harm spine at their original offsets.'''
+    key = ('harmKeys', bpm)
+    if key not in self.analyses:
+      harmKeys = self.analyses[('harmKeys', 0)]
+      self.analyses[key] = self._reindex_like_sampled(harmKeys, bpm)
+    return self.analyses[key]
 
   def harmonies(self, bpm=60):
     '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
     piece is a kern file and has a **harm spine. Otherwise return an empty series. The
     index of the series will match the columns of the sampled piano roll created with the
-    same bpm as that passed.'''
-    if 'harm' not in self.analyses:
-      self._import_function_harm_spines()
+    same bpm as that passed. If bpm is set to 0, it will return the **harm spine
+    observations at their original offsets.'''
     key = ('harm', bpm)
     if key not in self.analyses:
-      return self.analyses[key]
-    harm = self.analyses['harm']
-    timepoints = self.sampled(bpm).iloc[0, :]
-    self.analyses[key] = harm.reindex_like(timepoints).ffill()
+      harm = self.analyses[('harm', 0)]
+      self.analyses[key] = self._reindex_like_sampled(harm, bpm)
     return self.analyses[key]
 
   def functions(self, bpm=60):
     '''\tGet the functional analysis from the **function spine as a pandas series if this
     piece is a kern file and has a **function spine. Otherwise return an empty series. The
     index of the series will match the columns of the sampled piano roll created with the
-    same bpm as that passed.'''
-    if 'function' not in self.analyses:
-      self._import_function_harm_spines()
-    key = ('functions', bpm)
+    same bpm as that passed. If bpm is set to 0, it will return the **function spine
+    observations at their original offsets.'''
+    key = ('function', bpm)
     if key not in self.analyses:
-      return self.analyses[key]
-    functions = self.analyses['functions']
-    timepoints = self.sampled(bpm).iloc[0, :]
-    self.analyses[key] = functions.reindex_like(timepoints).ffill()
+      functions = self.analyses[('function', 0)]
+      self.analyses[key] = self._reindex_like_sampled(functions, bpm)
     return self.analyses[key]
 
   def _remove_tied(self, noteOrRest):

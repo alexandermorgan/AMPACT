@@ -117,16 +117,16 @@ class Score:
     self.analyses['_priority'] = priority
     return priority
 
-  def _reindex_like_sampled(self, ser, bpm=60):
+  def _reindex_like_sampled(self, ser, bpm=60, obs=20):
     '''\tGiven a pandas.Series, reindex it like the columns of the piano roll sampled
-    at 20 observations a second at the given bpm assuming the quarter note is the beat.
+    at `obs` observations a second at the given bpm assuming the quarter note is the beat.
     If an index value in the passed series is not in the columns of the sampled piano
     roll, it will be rewritten to the nearest preceding index val and if this creates
     duplicate index values, only the last one will be kept. Returns a forward-filled 
     copy of the passed series. The original series is not changed.'''
     _ser = ser.copy()
-    timepoints = self.sampled(bpm).iloc[0, :]
-    for i, val in enumerate(ser.index):
+    timepoints = self.sampled(bpm, obs).iloc[0, :]
+    for i, val in enumerate(_ser.index):
       if val not in timepoints.index:
         _ser.index[i] = timepoints.index.asof(val)
     _ser = _ser[~_ser.index.duplicated(keep='last')]
@@ -200,29 +200,25 @@ class Score:
       self.analyses['piano_roll'] = piano_roll
     return self.analyses['piano_roll']
 
-  def sampled(self, bpm=60):
-    '''\tSample the score according to bpm, sample_rate, and winms.'''
-    key = ('sampled', bpm)
+  def sampled(self, bpm=60, obs=20):
+    '''\tSample the score according to bpm, and the desired observations per second, `obs`.'''
+    key = ('sampled', bpm, obs)
     if key not in self.analyses:
-      # freqs = [round(2**((i-69)/12) * aFreq, 3) for i in range(128)] 
-      # piano_roll.index = freqs
-      pr_cols = self.piano_roll().columns
-      col_set = set(pr_cols)  # this set makes sure that any timepoints in piano_roll cols will persist
-      slices = 60/bpm * 20
-      col_set.update([t/slices for t in range(0, int(self.score.highestTime * slices))])
-      sampled = pd.DataFrame(columns=sorted(col_set), index=self.piano_roll().index)
-      sampled.update(self.piano_roll())
-      sampled = sampled.ffill(axis=1).fillna(0)
+      slices = 60/bpm * obs
+      timepoints = pd.Index([t/slices for t in range(0, int(self.score.highestTime * slices))])
+      pr = self.piano_roll().copy()
+      pr.columns = [col if col in timepoints else timepoints.asof(col) for col in pr.columns]
+      sampled = pr.reindex(columns=timepoints, method='ffill')
       self.analyses[key] = sampled
     return self.analyses[key]
 
   def mask(self, winms=100, sample_rate=2000, num_harmonics=1, width=0,
-            bpm=60, aFreq=440, base_note=0, tuning_factor=1):
+            bpm=60, aFreq=440, base_note=0, tuning_factor=1, obs=20):
     '''\tConstruct a mask from the sampled piano roll using width and harmonics.'''
     key = ('mask', winms, sample_rate, num_harmonics, width, bpm, aFreq, base_note, tuning_factor)
     if key not in self.analyses:
       width_semitone_factor = 2 ** ((width / 2) / 12)
-      sampled = self.sampled(bpm)
+      sampled = self.sampled(bpm, obs)
       num_rows = int(2 ** round(math.log(winms / 1000 * sample_rate) / math.log(2) - 1)) + 1
       mask = pd.DataFrame(index=range(num_rows), columns=sampled.columns).fillna(0)
       fftlen = 2**round(math.log(winms / 1000 * sample_rate) / math.log(2))
@@ -244,16 +240,14 @@ class Score:
     return self.analyses[key]
 
 
-piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
-harm = piece.harmonies()
-pdb.set_trace()
-  # debugging print statements
-  # m2 = mask[mask.sum(axis=1) > 0]
-  # ser = m2.index.to_series()
-  # ends = m2[(ser != (ser.shift() + 1)) | (ser != (ser.shift(-1) -1))]
-  # sums = ends.sum()
-  # corners = ends.loc[:, ((sums != sums.shift()) | (sums != sums.shift(-1)))]
-  # print(corners)
-  # vert = ends.T
-  # print('shape ->', mask.shape)
-  # pdb.set_trace()
+# piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
+# pr = piece.piano_roll()
+# sampled = piece.sampled()
+# mask = piece.mask()
+# harm = piece.harmonies()
+# functions = piece.functions()
+# h2 = harm[harm != harm.shift()]
+# f2 = functions[functions != functions.shift()]
+# df = pd.concat([f2, h2], axis=1, sort=True).ffill()
+# df.columns = ['Function', 'Harmony']
+# pdb.set_trace()

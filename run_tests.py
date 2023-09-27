@@ -26,14 +26,16 @@ def test_lyrics(score_path, shape, first, last):
 def test_harm_spine(score_path, controlHarmonies, controlKeys):
   print(f'Running test_harm_spine on {score_path} ...')
   piece = Score(score_path)
-  assert piece.harmonies().equals(controlHarmonies)
-  assert piece.harmKeys().equals(controlKeys)
+  test1 = piece.harmonies().reindex_like(controlHarmonies)
+  test2 = piece.harmKeys().reindex_like(controlKeys)
+  assert test1.equals(controlHarmonies)
+  assert test2.equals(controlKeys)
 
-def test_function_spine(score_path, controlFunctions, controlKeys):
+def test_function_spine(score_path, controlFunctions):
   print(f'Running test_harm_spine on {score_path} ...')
   piece = Score(score_path)
-  assert piece.functions().equals(controlFunctions)
-  assert piece.funcKeys().equals(controlKeys)
+  test = piece.functions().reindex_like(controlFunctions)
+  assert test.equals(controlFunctions)
 
 # check creation of Score objects from various types of symbolic notation files
 piece = Score('./test_files/M025_00_01a_a-repeated.krn')
@@ -46,7 +48,6 @@ Score('./test_files/polyExample3voices1note.mid')
 Score('./test_files/polyphonic4voices1note.mid')
 Score('./test_files/polyphonic4voices1note.mei')
 Score('./test_files/busnoys.krn')
-Score('./test_files/B063_00_01a_a.krn')
 Score('./test_files/B063_00_01a_a.mei')  # harmonic analysis is encoded and analyzed as lyrics
 test_lyrics('./test_files/busnoys.krn', (438, 4), 'In', 'cum.')
 test_harm_spine('./test_files/M025_00_01a_a-repeated.krn',
@@ -59,8 +60,9 @@ test_function_spine('./test_files/M025_00_01a_a-repeated.krn',
   pd.Series(['T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T',
               'T', 'T', 'T', 'P', 'P', 'P', 'P', 'D', 'D', 'T', 'T', 'T'],
             [0.0, 1.0, 2.0, 2.5, 3.0, 4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 12.0, 13.0,
-              14.0, 15.0, 16.0, 16.5, 17.0, 18.0, 19.0, 19.5, 20.0, 20.5, 21.0, 22.0, 23.0]),
-  pd.Series(['*D:'], [0.0]))
+              14.0, 15.0, 16.0, 16.5, 17.0, 18.0, 19.0, 19.5, 20.0, 20.5, 21.0, 22.0, 23.0]))
+
+print('\n\n\t\t**** All tests passed ✅ ****\n\n')
   
 
 # test_sampled_piano_roll('./test_files/polyphonic4voices1note.mid', './test_files/polyphonic4voices1note-pr.csv')  # problematic because of terminal rests

@@ -210,19 +210,31 @@ class Score:
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
     columns about the notes and rests in that voice:
 
-    ONSET_BEATS    DURATION_BEATS    PART    MIDI    ONSET_SECS    OFFSET_SECS
+    ONSET_BEAT    DURATION_BEAT    PART    MIDI    ONSET_SEC    OFFSET_SEC
 
     In the MIDI column, notes are represented with their midi pitch numbers 0 to 127
     inclusive, and rests are represented with -1s. The ONSET and OFFSET columns given
     in seconds are directly proportional to the ONSET_BEATS column and ONSET_BEATS +
     DURATION_BEATS columns respectively. The proportion used is determined by the `bpm`
     argument.'''
-    mp = self.midi_pitches()
-    pdb.set_trace()
-    v1 = mp.iloc[:, 0]
-    df = pd.DataFrame()
-
-
+    key = ('nmats', bpm)
+    if key not in self.analyses:
+      nmats = {}
+      dur = self.durations()
+      mp = self.midi_pitches()
+      toSeconds = 60/bpm
+      for i, partName in enumerate(self.part_names):
+        midi = mp.iloc[:, i].dropna()
+        onsetBeat = midi.index.to_series()
+        durBeat = dur.iloc[:, i].dropna()
+        part = pd.Series(partName, midi.index)
+        onsetSec = onsetBeat * toSeconds
+        offsetSec = (onsetBeat + durBeat) * toSeconds
+        df = pd.concat([onsetBeat, durBeat, part, midi, onsetSec, offsetSec], axis=1)
+        df.columns = ['ONSET_BEAT', 'DURATION_BEAT', 'PART', 'MIDI', 'ONSET_SEC', 'OFFSET_SEC']
+        nmats[partName] = df
+      self.analyses[key] = nmats
+    return self.analyses[key]
 
   def piano_roll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
@@ -281,9 +293,9 @@ class Score:
 # piece = Score(score_path='./test_files/monophonic3notes.mid')
 # piece = Score(score_path='./test_files/polyExample3voices1note.mid')
 # dur = piece.durations()
+# nmat = piece.nmats()
 # pdb.set_trace()
 # pr = piece.piano_roll()
-# nmat = piece.nmats()
 # sampled = piece.sampled()
 # mask = piece.mask()
 # harm = piece.harmonies()

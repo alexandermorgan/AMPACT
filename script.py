@@ -25,7 +25,7 @@ class Score:
     self.part_names = []
     self.analyses = {}
     for i, part in enumerate(self.semi_flat_parts):
-      name = part.partName if (part.partName and part.partName not in self.part_names) else 'Part-' + str(i + 1)
+      name = part.partName if (part.partName and part.partName not in self.part_names) else 'Part_' + str(i + 1)
       self.part_names.append(name)
     self.parts = []
     for i, flat_part in enumerate(self.semi_flat_parts):
@@ -39,7 +39,10 @@ class Score:
           events.append((nrc,))
           offsets.append(round(float(nrc.offset), 4))
       df = pd.DataFrame(events, index=offsets)
-      df = df.add_prefix(self.part_names[i] + '_')
+      if len(df.columns) > 1:
+        df.columns = [':'.join((self.part_names[i], str(j))) for j in range(1, len(df.columns) + 1)]
+      else:
+        df.columns = [self.part_names[i]]
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
@@ -292,8 +295,10 @@ class Score:
 # piece = Score(score_path='./test_files/qwerty.krn')
 # piece = Score(score_path='./test_files/monophonic3notes.mid')
 # piece = Score(score_path='./test_files/polyExample3voices1note.mid')
+# piece = Score(score_path='./test_files/polyphonic4voices1note.mei')
 # dur = piece.durations()
 # nmat = piece.nmats()
+# nmat75 = piece.nmats(bpm=75)
 # pdb.set_trace()
 # pr = piece.piano_roll()
 # sampled = piece.sampled()

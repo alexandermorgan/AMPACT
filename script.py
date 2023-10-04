@@ -51,7 +51,7 @@ class Score:
       humFile.parseFilename()
       objs = self.m21_objects()
       for spine in humFile.spineCollection:
-        if spine.spineType in ('harm', 'function'):
+        if spine.spineType in ('harm', 'function', 'qwerty'):
           start = False
           vals, valPositions = [], []
           if spine.spineType == 'harm':
@@ -79,7 +79,7 @@ class Score:
           ser = pd.Series(joined[name].values, index=joined.Offset)
           ser.index.name =  ''
           self.analyses[(spine.spineType, 0)] = ser
-          if len(keyVals):
+          if spine.spineType == 'harm' and len(keyVals):
             keyName = 'HarmKeys'
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
@@ -98,7 +98,7 @@ class Score:
     if 'm21_objects' not in self.analyses:
       self.analyses['m21_objects'] = pd.concat(self.parts, axis=1, sort=True)
     return self.analyses['m21_objects']
-
+  
   def lyrics(self):
     if 'lyrics' not in self.analyses:
       self.analyses['lyrics'] = self.m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
@@ -179,6 +179,24 @@ class Score:
       self.analyses['m21ObjectsNoTies'] = self.m21_objects().applymap(self._remove_tied).dropna(how='all')
     return self.analyses['m21ObjectsNoTies']
 
+  def durations(self):
+    '''\tReturn dataframe of durations of note and rest objects in piece.'''
+    if 'durations' not in self.analyses:
+      mp = self.midi_pitches()
+      sers = []
+      for col in range(len(mp.columns)):
+        part = mp.iloc[:, col].dropna()
+        if len(part) > 1:
+          vals = (part.index[1:] - part.index[:-1]).to_list()
+        else:
+          vals = []
+        vals.append(self.score.highestTime - part.index[-1])
+        sers.append(pd.Series(vals, part.index))
+      df = pd.concat(sers, axis=1)
+      self.analyses['durations'] = df
+      df.columns = mp.columns
+    return self.analyses['durations']
+
   def midi_pitches(self):
     '''\tProcess notes as midi pitches. Midi does not have a representation
     for rests, so use -1 as a placeholder.'''
@@ -187,6 +205,24 @@ class Score:
       midi_pitches = midi_pitches.ffill().astype(int)
       self.analyses['midi_pitches'] = midi_pitches
     return self.analyses['midi_pitches']
+
+  def nmats(self, bpm=60):
+    '''\tReturn a dictionary of dataframes, one for each voice, each with the following
+    columns about the notes and rests in that voice:
+
+    ONSET_BEATS    DURATION_BEATS    PART    MIDI    ONSET_SECS    OFFSET_SECS
+
+    In the MIDI column, notes are represented with their midi pitch numbers 0 to 127
+    inclusive, and rests are represented with -1s. The ONSET and OFFSET columns given
+    in seconds are directly proportional to the ONSET_BEATS column and ONSET_BEATS +
+    DURATION_BEATS columns respectively. The proportion used is determined by the `bpm`
+    argument.'''
+    mp = self.midi_pitches()
+    pdb.set_trace()
+    v1 = mp.iloc[:, 0]
+    df = pd.DataFrame()
+
+
 
   def piano_roll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
@@ -241,13 +277,20 @@ class Score:
 
 
 # piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
+# piece = Score(score_path='./test_files/qwerty.krn')
+# piece = Score(score_path='./test_files/monophonic3notes.mid')
+# piece = Score(score_path='./test_files/polyExample3voices1note.mid')
+# dur = piece.durations()
+# pdb.set_trace()
 # pr = piece.piano_roll()
+# nmat = piece.nmats()
 # sampled = piece.sampled()
 # mask = piece.mask()
 # harm = piece.harmonies()
 # functions = piece.functions()
+# qwerty = piece.analyses[('qwerty', 0)]
 # h2 = harm[harm != harm.shift()]
 # f2 = functions[functions != functions.shift()]
-# df = pd.concat([f2, h2], axis=1, sort=True).ffill()
-# df.columns = ['Function', 'Harmony']
+# df = pd.concat([f2, h2, qwerty], axis=1, sort=True).ffill()
+# df.columns = ['Function', 'Harmony', 'Qwerty']
 # pdb.set_trace()

@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import music21 as m21
 import math
+import ast
 import pdb
 
 # score_path = './test_files/polyphonic4voices1note.mei'
@@ -54,7 +55,7 @@ class Score:
       humFile.parseFilename()
       objs = self.m21_objects()
       for spine in humFile.spineCollection:
-        if spine.spineType in ('harm', 'function', 'qwerty'):
+        if spine.spineType in ('harm', 'function', 'cdata'):
           start = False
           vals, valPositions = [], []
           if spine.spineType == 'harm':
@@ -77,18 +78,23 @@ class Score:
 
           df1 = self._priority()
           name = spine.spineType.title()
-          df2 = pd.DataFrame({name: vals}, index=valPositions)
+          if name == 'Cdata':
+            df2 = pd.DataFrame([ast.literal_eval(val) for val in vals], index=valPositions)
+          else:
+            df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
-          ser = pd.Series(joined[name].values, index=joined.Offset)
-          ser.index.name =  ''
-          self.analyses[(spine.spineType, 0)] = ser
+          res = joined.iloc[:, 2:].copy()  # get all the columns from the third to the end. Usually just 1 col except for cdata
+          res.index = joined['Offset']
+          res.index.name = ''
+          self.analyses[(spine.spineType, 0)] = res
           if spine.spineType == 'harm' and len(keyVals):
-            keyName = 'HarmKeys'
+            keyName = 'harmKeys'
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
-            keySer = pd.Series(joined[keyName].values, index=joined.Offset).dropna()
-            keySer.index.name = ''
-            self.analyses[('harmKeys', 0)] = keySer
+            df3 = joined.iloc[:, 2:].copy()
+            df3.index = joined['Offset']
+            df3.index.name = ''
+            self.analyses[(keyName, 0)] = df3
 
       if ('function', 0) not in self.analyses:
         self.analyses[('function', 0)] = pd.Series()
@@ -120,21 +126,20 @@ class Score:
     self.analyses['_priority'] = priority
     return priority
 
-  def _reindex_like_sampled(self, ser, bpm=60, obs=20):
-    '''\tGiven a pandas.Series, reindex it like the columns of the piano roll sampled
+  def _reindex_like_sampled(self, df, bpm=60, obs=20):
+    '''\tGiven a pandas.DataFrame, reindex it like the columns of the piano roll sampled
     at `obs` observations a second at the given bpm assuming the quarter note is the beat.
-    If an index value in the passed series is not in the columns of the sampled piano
+    If an index value in the passed dataframe is not in the columns of the sampled piano
     roll, it will be rewritten to the nearest preceding index val and if this creates
     duplicate index values, only the last one will be kept. Returns a forward-filled 
-    copy of the passed series. The original series is not changed.'''
-    _ser = ser.copy()
+    copy of the passed dataframe. The original dataframe is not changed.'''
+    _df = df.copy()
     timepoints = self.sampled(bpm, obs).iloc[0, :]
-    for i, val in enumerate(_ser.index):
-      if val not in timepoints.index:
-        _ser.index[i] = timepoints.index.asof(val)
-    _ser = _ser[~_ser.index.duplicated(keep='last')]
-    _ser = _ser.reindex_like(timepoints).ffill()
-    return _ser
+    ndx = [val if val in timepoints.index else timepoints.index.asof(val) for val in _df.index]
+    _df.index = ndx
+    _df = _df[~_df.index.duplicated(keep='last')]
+    _df = _df.reindex(index=timepoints.index).ffill()
+    return _df
 
   def harmKeys(self, bpm=60):
     '''\tGet the keys the **harm spine is done in as a pandas series if this piece
@@ -299,15 +304,15 @@ class Score:
 # dur = piece.durations()
 # nmat = piece.nmats()
 # nmat75 = piece.nmats(bpm=75)
-# pdb.set_trace()
+# # pdb.set_trace()
 # pr = piece.piano_roll()
 # sampled = piece.sampled()
 # mask = piece.mask()
 # harm = piece.harmonies()
 # functions = piece.functions()
-# qwerty = piece.analyses[('qwerty', 0)]
+# cdata = piece.analyses[('cdata', 0)]
 # h2 = harm[harm != harm.shift()]
 # f2 = functions[functions != functions.shift()]
-# df = pd.concat([f2, h2, qwerty], axis=1, sort=True).ffill()
-# df.columns = ['Function', 'Harmony', 'Qwerty']
+# df = pd.concat([f2, h2, cdata], axis=1, sort=True).ffill()
 # pdb.set_trace()
+

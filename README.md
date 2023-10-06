@@ -4,5 +4,5 @@ AMPACT is a project run by [Prof. Johanna Devaney](https://www.brooklyn.cuny.edu
 
 This code repository translates some of the existing tooling written in matlab to python, primarily using the [pandas](https://pandas.pydata.org) and [music21](https://web.mit.edu/music21/) libraries and draws many lessons from the [crim-intervals](https://github.com/HCDigitalScholarship/intervals), [humlib](https://github.com/craigsapp/humlib), and [vis-framework](https://github.com/ELVIS-Project/vis-framework) repositories.
 
-**Most significantly**, this repo makes a `Score` object available. You can use this `Score` object to get tables of various types of information or analysis about a piece. Explore the primary features of this repository live with this colab notebook.
+**Most significantly**, this repo makes a `Score` object available. You can use this `Score` object to get tables of various types of information or analysis about a piece. Explore the primary features of this repository in the README.ipynb on github, or live with this [colab notebook](https://githubtocolab.com/alexandermorgan/AMPACT/blob/main/README.ipynb).
 

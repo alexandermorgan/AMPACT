@@ -24,7 +24,7 @@ class Score:
     self._partStreams = self.score.getElementsByClass(m21.stream.Part)
     self._semiFlatParts = [part.semiFlat for part in self._partStreams]
     self.partNames = []
-    self.public = [prop for prop in dir(self) if not prop.startswith('_')]
+    self.public = '\n'.join([f'{prop.ljust(15)}{type(getattr(self, prop))}' for prop in dir(self) if not prop.startswith('_')])
     self._analyses = {}
     for i, part in enumerate(self._semiFlatParts):
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
@@ -180,7 +180,7 @@ class Score:
 
   def _remove_tied(self, noteOrRest):
     if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
-      return pd.NA
+      return np.nan
     return noteOrRest
 
   def _m21ObjectsNoTies(self):
@@ -211,7 +211,6 @@ class Score:
     have a representation for rests, so -1 is used as a placeholder.'''
     if 'midiPitches' not in self._analyses:
       midiPitches = self._m21ObjectsNoTies().applymap(lambda noteOrRest: -1 if noteOrRest.isRest else noteOrRest.pitch.midi, na_action='ignore')
-      midiPitches = midiPitches.ffill().astype(int)
       self._analyses['midiPitches'] = midiPitches
     return self._analyses['midiPitches']
 
@@ -248,9 +247,10 @@ class Score:
   def pianoRoll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
     if 'pianoRoll' not in self._analyses:
-      pianoRoll = pd.DataFrame(index=range(128), columns=self.midiPitches().index.values)
-      for offset in self.midiPitches().index:
-        for pitch in self.midiPitches().loc[offset]:
+      mp = self.midiPitches().ffill().astype(int)
+      pianoRoll = pd.DataFrame(index=range(128), columns=mp.index.values)
+      for offset in mp.index:
+        for pitch in mp.loc[offset]:
           if pitch >= 0:
             pianoRoll.at[pitch, offset] = 1
       pianoRoll.fillna(0, inplace=True)

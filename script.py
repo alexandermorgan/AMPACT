@@ -96,12 +96,12 @@ class Score:
             df3.index.name = ''
             self._analyses[(keyName, 0)] = df3
 
-      if ('function', 0) not in self._analyses:
-        self._analyses[('function', 0)] = pd.Series()
-      if ('harm', 0) not in self._analyses:
-        self._analyses[('harm', 0)] = pd.Series()
-      if ('harmKeys', 0) not in self._analyses:
-        self._analyses[('harmKeys', 0)] = pd.Series()
+    if ('function', 0) not in self._analyses:
+      self._analyses[('function', 0)] = pd.DataFrame()
+    if ('harm', 0) not in self._analyses:
+      self._analyses[('harm', 0)] = pd.DataFrame()
+    if ('harmKeys', 0) not in self._analyses:
+      self._analyses[('harmKeys', 0)] = pd.DataFrame()
   
   def m21_objects(self):
     if 'm21_objects' not in self._analyses:
@@ -141,7 +141,7 @@ class Score:
     _df = _df.reindex(index=timepoints.index).ffill()
     return _df
 
-  def harmKeys(self, bpm=60):
+  def harmKeys(self, bpm=0):
     '''\tGet the keys the **harm spine is done in as a pandas series if this piece
     is a kern file and has a **harm spine. Otherwise return an empty series. The
     index of the series will match the columns of the sampled piano roll created with the
@@ -153,7 +153,7 @@ class Score:
       self._analyses[key] = self._reindex_like_sampled(harmKeys, bpm)
     return self._analyses[key]
 
-  def harmonies(self, bpm=60):
+  def harmonies(self, bpm=0):
     '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
     piece is a kern file and has a **harm spine. Otherwise return an empty series. The
     index of the series will match the columns of the sampled piano roll created with the
@@ -165,7 +165,7 @@ class Score:
       self._analyses[key] = self._reindex_like_sampled(harm, bpm)
     return self._analyses[key]
 
-  def functions(self, bpm=60):
+  def functions(self, bpm=0):
     '''\tGet the functional analysis from the **function spine as a pandas series if this
     piece is a kern file and has a **function spine. Otherwise return an empty series. The
     index of the series will match the columns of the sampled piano roll created with the

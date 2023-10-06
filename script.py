@@ -201,7 +201,7 @@ class Score:
           vals = []
         vals.append(self.score.highestTime - part.index[-1])
         sers.append(pd.Series(vals, part.index))
-      df = pd.concat(sers, axis=1)
+      df = pd.concat(sers, axis=1, sort=True)
       self._analyses['durations'] = df
       df.columns = m21objs.columns
     return self._analyses['durations']
@@ -295,26 +295,3 @@ class Score:
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self._analyses[key] = mask
     return self._analyses[key]
-
-
-# piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
-# piece = Score(score_path='./test_files/busnoys.krn')
-# piece = Score(score_path='./test_files/qwerty.krn')
-# piece = Score(score_path='./test_files/monophonic3notes.mid')
-# piece = Score(score_path='./test_files/polyExample3voices1note.mid')
-# piece = Score(score_path='./test_files/polyphonic4voices1note.mei')
-# dur = piece.durations()
-# nmat = piece.nmats()
-# nmat75 = piece.nmats(bpm=75)
-# # pdb.set_trace()
-# pr = piece.pianoRoll()
-# sampled = piece.sampled()
-# mask = piece.mask()
-# harm = piece.harmonies()
-# functions = piece.functions()
-# cdata = piece._analyses[('cdata', 0)]
-# h2 = harm[harm != harm.shift()]
-# f2 = functions[functions != functions.shift()]
-# df = pd.concat([f2, h2, cdata], axis=1, sort=True).ffill()
-# pdb.set_trace()
-

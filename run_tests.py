@@ -1,5 +1,5 @@
 import os, sys; sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-from script import *
+from script import Score
 
 def test_sampled_piano_roll(score_path, truth_path):
   print(f'Running test_sampled_piano_roll on {score_path} and {truth_path} ...')

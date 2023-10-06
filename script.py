@@ -21,15 +21,16 @@ class Score:
     self.file_name = score_path.rsplit('.', 1)[0].rsplit('/')[-1]
     self.file_extension = score_path.rsplit('.', 1)[1]
     self.metadata = {'Title': self.score.metadata.title, 'Composer': self.score.metadata.composer}
-    self.part_streams = self.score.getElementsByClass(m21.stream.Part)
-    self.semi_flat_parts = [part.semiFlat for part in self.part_streams]
+    self._part_streams = self.score.getElementsByClass(m21.stream.Part)
+    self._semi_flat_parts = [part.semiFlat for part in self._part_streams]
     self.part_names = []
+    self.public = [prop for prop in dir(self) if not prop.startswith('_')]
     self._analyses = {}
-    for i, part in enumerate(self.semi_flat_parts):
+    for i, part in enumerate(self._semi_flat_parts):
       name = part.partName if (part.partName and part.partName not in self.part_names) else 'Part_' + str(i + 1)
       self.part_names.append(name)
     self.parts = []
-    for i, flat_part in enumerate(self.semi_flat_parts):
+    for i, flat_part in enumerate(self._semi_flat_parts):
       elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
       events, offsets = [], []
       for nrc in elements:
@@ -53,7 +54,7 @@ class Score:
     if self.file_extension == 'krn':
       humFile = m21.humdrum.spineParser.HumdrumFile(self.path)
       humFile.parseFilename()
-      objs = self.m21_objects()
+      objs = self._m21_objects()
       for spine in humFile.spineCollection:
         if spine.spineType in ('harm', 'function', 'cdata'):
           start = False
@@ -103,14 +104,14 @@ class Score:
     if ('harmKeys', 0) not in self._analyses:
       self._analyses[('harmKeys', 0)] = pd.DataFrame()
   
-  def m21_objects(self):
-    if 'm21_objects' not in self._analyses:
-      self._analyses['m21_objects'] = pd.concat(self.parts, axis=1, sort=True)
-    return self._analyses['m21_objects']
+  def _m21_objects(self):
+    if '_m21_objects' not in self._analyses:
+      self._analyses['_m21_objects'] = pd.concat(self.parts, axis=1, sort=True)
+    return self._analyses['_m21_objects']
   
   def lyrics(self):
     if 'lyrics' not in self._analyses:
-      self._analyses['lyrics'] = self.m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
+      self._analyses['lyrics'] = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self._analyses['lyrics']
 
   def _priority(self):
@@ -121,7 +122,7 @@ class Score:
     if self.file_extension != 'krn':
       priority = pd.DataFrame()
     else:
-      priority = self.m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
+      priority = self._m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
       priority = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
     self._analyses['_priority'] = priority
     return priority
@@ -182,15 +183,15 @@ class Score:
       return pd.NA
     return noteOrRest
 
-  def m21ObjectsNoTies(self):
-    if 'm21ObjectsNoTies' not in self._analyses:
-      self._analyses['m21ObjectsNoTies'] = self.m21_objects().applymap(self._remove_tied).dropna(how='all')
-    return self._analyses['m21ObjectsNoTies']
+  def _m21ObjectsNoTies(self):
+    if '_m21ObjectsNoTies' not in self._analyses:
+      self._analyses['_m21ObjectsNoTies'] = self._m21_objects().applymap(self._remove_tied).dropna(how='all')
+    return self._analyses['_m21ObjectsNoTies']
 
   def durations(self):
     '''\tReturn dataframe of durations of note and rest objects in piece.'''
     if 'durations' not in self._analyses:
-      mp = self.midi_pitches()
+      mp = self.midiPitches()
       sers = []
       for col in range(len(mp.columns)):
         part = mp.iloc[:, col].dropna()
@@ -205,14 +206,14 @@ class Score:
       df.columns = mp.columns
     return self._analyses['durations']
 
-  def midi_pitches(self):
-    '''\tProcess notes as midi pitches. Midi does not have a representation
-    for rests, so use -1 as a placeholder.'''
-    if 'midi_pitches' not in self._analyses:
-      midi_pitches = self.m21ObjectsNoTies().applymap(lambda noteOrRest: -1 if noteOrRest.isRest else noteOrRest.pitch.midi, na_action='ignore')
-      midi_pitches = midi_pitches.ffill().astype(int)
-      self._analyses['midi_pitches'] = midi_pitches
-    return self._analyses['midi_pitches']
+  def midiPitches(self):
+    '''\tReturn a dataframe of notes and rests as midi pitches. Midi does not
+    have a representation for rests, so -1 is used as a placeholder.'''
+    if 'midiPitches' not in self._analyses:
+      midiPitches = self._m21ObjectsNoTies().applymap(lambda noteOrRest: -1 if noteOrRest.isRest else noteOrRest.pitch.midi, na_action='ignore')
+      midiPitches = midiPitches.ffill().astype(int)
+      self._analyses['midiPitches'] = midiPitches
+    return self._analyses['midiPitches']
 
   def nmats(self, bpm=60):
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
@@ -229,7 +230,7 @@ class Score:
     if key not in self._analyses:
       nmats = {}
       dur = self.durations()
-      mp = self.midi_pitches()
+      mp = self.midiPitches()
       toSeconds = 60/bpm
       for i, partName in enumerate(self.part_names):
         midi = mp.iloc[:, i].dropna()
@@ -244,17 +245,17 @@ class Score:
       self._analyses[key] = nmats
     return self._analyses[key]
 
-  def piano_roll(self):
+  def pianoRoll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
-    if 'piano_roll' not in self._analyses:
-      piano_roll = pd.DataFrame(index=range(128), columns=self.midi_pitches().index.values)
-      for offset in self.midi_pitches().index:
-        for pitch in self.midi_pitches().loc[offset]:
+    if 'pianoRoll' not in self._analyses:
+      pianoRoll = pd.DataFrame(index=range(128), columns=self.midiPitches().index.values)
+      for offset in self.midiPitches().index:
+        for pitch in self.midiPitches().loc[offset]:
           if pitch >= 0:
-            piano_roll.at[pitch, offset] = 1
-      piano_roll.fillna(0, inplace=True)
-      self._analyses['piano_roll'] = piano_roll
-    return self._analyses['piano_roll']
+            pianoRoll.at[pitch, offset] = 1
+      pianoRoll.fillna(0, inplace=True)
+      self._analyses['pianoRoll'] = pianoRoll
+    return self._analyses['pianoRoll']
 
   def sampled(self, bpm=60, obs=20):
     '''\tSample the score according to bpm, and the desired observations per second, `obs`.'''
@@ -262,7 +263,7 @@ class Score:
     if key not in self._analyses:
       slices = 60/bpm * obs
       timepoints = pd.Index([t/slices for t in range(0, int(self.score.highestTime * slices))])
-      pr = self.piano_roll().copy()
+      pr = self.pianoRoll().copy()
       pr.columns = [col if col in timepoints else timepoints.asof(col) for col in pr.columns]
       sampled = pr.reindex(columns=timepoints, method='ffill')
       self._analyses[key] = sampled
@@ -305,7 +306,7 @@ class Score:
 # nmat = piece.nmats()
 # nmat75 = piece.nmats(bpm=75)
 # # pdb.set_trace()
-# pr = piece.piano_roll()
+# pr = piece.pianoRoll()
 # sampled = piece.sampled()
 # mask = piece.mask()
 # harm = piece.harmonies()

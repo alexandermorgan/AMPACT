@@ -191,10 +191,10 @@ class Score:
   def durations(self):
     '''\tReturn dataframe of durations of note and rest objects in piece.'''
     if 'durations' not in self._analyses:
-      mp = self.midiPitches()
+      m21objs = self._m21ObjectsNoTies()
       sers = []
-      for col in range(len(mp.columns)):
-        part = mp.iloc[:, col].dropna()
+      for col in range(len(m21objs.columns)):
+        part = m21objs.iloc[:, col].dropna()
         if len(part) > 1:
           vals = (part.index[1:] - part.index[:-1]).to_list()
         else:
@@ -203,7 +203,7 @@ class Score:
         sers.append(pd.Series(vals, part.index))
       df = pd.concat(sers, axis=1)
       self._analyses['durations'] = df
-      df.columns = mp.columns
+      df.columns = m21objs.columns
     return self._analyses['durations']
 
   def midiPitches(self):
@@ -298,6 +298,7 @@ class Score:
 
 
 # piece = Score(score_path='./test_files/M025_00_01a_a-repeated.krn')
+# piece = Score(score_path='./test_files/busnoys.krn')
 # piece = Score(score_path='./test_files/qwerty.krn')
 # piece = Score(score_path='./test_files/monophonic3notes.mid')
 # piece = Score(score_path='./test_files/polyExample3voices1note.mid')

@@ -18,19 +18,19 @@ class Score:
     if score_path not in imported_scores:
       imported_scores[score_path] = m21.converter.parse(score_path)
     self.score = m21.converter.parse(score_path)
-    self.file_name = score_path.rsplit('.', 1)[0].rsplit('/')[-1]
-    self.file_extension = score_path.rsplit('.', 1)[1]
+    self.fileName = score_path.rsplit('.', 1)[0].rsplit('/')[-1]
+    self.fileExtension = score_path.rsplit('.', 1)[1]
     self.metadata = {'Title': self.score.metadata.title, 'Composer': self.score.metadata.composer}
-    self._part_streams = self.score.getElementsByClass(m21.stream.Part)
-    self._semi_flat_parts = [part.semiFlat for part in self._part_streams]
-    self.part_names = []
+    self._partStreams = self.score.getElementsByClass(m21.stream.Part)
+    self._semiFlatParts = [part.semiFlat for part in self._partStreams]
+    self.partNames = []
     self.public = [prop for prop in dir(self) if not prop.startswith('_')]
     self._analyses = {}
-    for i, part in enumerate(self._semi_flat_parts):
-      name = part.partName if (part.partName and part.partName not in self.part_names) else 'Part_' + str(i + 1)
-      self.part_names.append(name)
+    for i, part in enumerate(self._semiFlatParts):
+      name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
+      self.partNames.append(name)
     self.parts = []
-    for i, flat_part in enumerate(self._semi_flat_parts):
+    for i, flat_part in enumerate(self._semiFlatParts):
       elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
       events, offsets = [], []
       for nrc in elements:
@@ -42,16 +42,16 @@ class Score:
           offsets.append(round(float(nrc.offset), 4))
       df = pd.DataFrame(events, index=offsets)
       if len(df.columns) > 1:
-        df.columns = [':'.join((self.part_names[i], str(j))) for j in range(1, len(df.columns) + 1)]
+        df.columns = [':'.join((self.partNames[i], str(j))) for j in range(1, len(df.columns) + 1)]
       else:
-        df.columns = [self.part_names[i]]
+        df.columns = [self.partNames[i]]
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
     self._import_function_harm_spines()
   
   def _import_function_harm_spines(self):
-    if self.file_extension == 'krn':
+    if self.fileExtension == 'krn':
       humFile = m21.humdrum.spineParser.HumdrumFile(self.path)
       humFile.parseFilename()
       objs = self._m21_objects()
@@ -119,7 +119,7 @@ class Score:
     often calls "priority". For other encoding formats return an empty dataframe.'''
     if '_priority' in self._analyses:
       return self._analyses['_priority']
-    if self.file_extension != 'krn':
+    if self.fileExtension != 'krn':
       priority = pd.DataFrame()
     else:
       priority = self._m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
@@ -232,7 +232,7 @@ class Score:
       dur = self.durations()
       mp = self.midiPitches()
       toSeconds = 60/bpm
-      for i, partName in enumerate(self.part_names):
+      for i, partName in enumerate(self.partNames):
         midi = mp.iloc[:, i].dropna()
         onsetBeat = midi.index.to_series()
         durBeat = dur.iloc[:, i].dropna()

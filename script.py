@@ -103,6 +103,8 @@ class Score:
       self._analyses[('harm', 0)] = pd.DataFrame()
     if ('harmKeys', 0) not in self._analyses:
       self._analyses[('harmKeys', 0)] = pd.DataFrame()
+    if ('cdata', 0) not in self._analyses:
+      self._analyses[('cdata', 0)] = pd.DataFrame()
   
   def _m21_objects(self):
     if '_m21_objects' not in self._analyses:
@@ -143,10 +145,10 @@ class Score:
     return _df
 
   def harmKeys(self, bpm=0):
-    '''\tGet the keys the **harm spine is done in as a pandas series if this piece
-    is a kern file and has a **harm spine. Otherwise return an empty series. The
-    index of the series will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0, it will return the key observations from
+    '''\tGet the keys the **harm spine is done in as a pandas dataframe if this piece
+    is a kern file and has a **harm spine. Otherwise return an empty dataframe. The
+    index of the dataframe will match the columns of the sampled piano roll created with the
+    same bpm as that passed. If bpm is set to 0 (default), it will return the key observations from
     the **harm spine at their original offsets.'''
     key = ('harmKeys', bpm)
     if key not in self._analyses:
@@ -155,10 +157,10 @@ class Score:
     return self._analyses[key]
 
   def harmonies(self, bpm=0):
-    '''\tGet the harmonic analysis from the **harm spine as a pandas series if this
-    piece is a kern file and has a **harm spine. Otherwise return an empty series. The
-    index of the series will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0, it will return the **harm spine
+    '''\tGet the harmonic analysis from the **harm spine as a pandas dataframe if this
+    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. The
+    index of the dataframe will match the columns of the sampled piano roll created with the
+    same bpm as that passed. If bpm is set to 0 (default), it will return the **harm spine
     observations at their original offsets.'''
     key = ('harm', bpm)
     if key not in self._analyses:
@@ -167,15 +169,27 @@ class Score:
     return self._analyses[key]
 
   def functions(self, bpm=0):
-    '''\tGet the functional analysis from the **function spine as a pandas series if this
-    piece is a kern file and has a **function spine. Otherwise return an empty series. The
-    index of the series will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0, it will return the **function spine
+    '''\tGet the functional analysis from the **function spine as a pandas dataframe if this
+    piece is a kern file and has a **function spine. Otherwise return an empty dataframe. The
+    index of the dataframe will match the columns of the sampled piano roll created with the
+    same bpm as that passed. If bpm is set to 0 (default), it will return the **function spine
     observations at their original offsets.'''
     key = ('function', bpm)
     if key not in self._analyses:
       functions = self._analyses[('function', 0)]
       self._analyses[key] = self._reindex_like_sampled(functions, bpm)
+    return self._analyses[key]
+
+  def cdata(self, bpm=0):
+    '''\tGet the cdata analysis from the **cdata spine as a pandas dataframe if this
+    piece is a kern file and has a **cdata spine. Otherwise return an empty dataframe. The
+    index of the dataframe will match the columns of the sampled piano roll created with the
+    same bpm as that passed. If bpm is set to 0 (default), it will return the **cdata spine
+    observations at their original offsets.'''
+    key = ('cdata', bpm)
+    if key not in self._analyses:
+      cdata = self._analyses[('cdata', 0)]
+      self._analyses[key] = self._reindex_like_sampled(cdata, bpm)
     return self._analyses[key]
 
   def _remove_tied(self, noteOrRest):

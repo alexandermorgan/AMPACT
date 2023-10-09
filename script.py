@@ -202,6 +202,28 @@ class Score:
       self._analyses['_m21ObjectsNoTies'] = self._m21_objects().applymap(self._remove_tied).dropna(how='all')
     return self._analyses['_m21ObjectsNoTies']
 
+  def _measures(self):
+    '''\tReturn df of the measure starting points.'''
+    if "_measure" not in self._analyses:
+      partMeasures = tuple(pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
+                            for part in self._semiFlatParts)
+      df = pd.concat(partMeasures, axis=1)
+      df.columns = self.partNames
+      self._analyses["_measure"] = df
+    return self._analyses["_measure"]
+
+  def _barlines(self):
+    '''\tReturn df of barlines specifying which barline type. Double barline, for
+    example, can help detect section divisions, and the final barline can help
+    process the `highestTime` similar to music21.'''
+    if "_barlines" not in self._analyses:
+      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])}, dtype='string')
+                            for part in self._semiFlatParts)
+      df = pd.concat(partBarlines, axis=1)
+      df.columns = self.partNames
+      self._analyses["_barlines"] = df
+    return self._analyses["_barlines"]
+
   def durations(self):
     '''\tReturn dataframe of durations of note and rest objects in piece.'''
     if 'durations' not in self._analyses:

@@ -82,7 +82,7 @@ class Score:
           if name == 'Cdata':
             df2 = pd.DataFrame([ast.literal_eval(val) for val in vals], index=valPositions)
           else:
-            df2 = pd.DataFrame({name: vals}, index=valPositions)
+            df2 = pd.DataFrame({name: vals}, index=valPositions, dtype='category')
           joined = df1.join(df2, on='Priority')
           res = joined.iloc[:, 2:].copy()  # get all the columns from the third to the end. Usually just 1 col except for cdata
           res.index = joined['Offset']
@@ -90,7 +90,7 @@ class Score:
           self._analyses[(spine.spineType, 0)] = res
           if spine.spineType == 'harm' and len(keyVals):
             keyName = 'harmKeys'
-            df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
+            df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions, dtype='category')
             joined = df1.join(df3, on='Priority')
             df3 = joined.iloc[:, 2:].copy()
             df3.index = joined['Offset']
@@ -113,7 +113,8 @@ class Score:
   
   def lyrics(self):
     if 'lyrics' not in self._analyses:
-      self._analyses['lyrics'] = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
+      lyrics = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
+      self._analyses['lyrics'] = lyrics.astype('category')  # 'category' type saves memory at small performance cost
     return self._analyses['lyrics']
 
   def _priority(self):
@@ -124,7 +125,7 @@ class Score:
     if self.fileExtension != 'krn':
       priority = pd.DataFrame()
     else:
-      priority = self._m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype(int)
+      priority = self._m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype('Int16')
       priority = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
     self._analyses['_priority'] = priority
     return priority
@@ -217,7 +218,7 @@ class Score:
     example, can help detect section divisions, and the final barline can help
     process the `highestTime` similar to music21.'''
     if "_barlines" not in self._analyses:
-      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])}, dtype='string')
+      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])}, dtype='category')
                             for part in self._semiFlatParts)
       df = pd.concat(partBarlines, axis=1)
       df.columns = self.partNames
@@ -236,7 +237,7 @@ class Score:
         else:
           vals = []
         vals.append(self.score.highestTime - part.index[-1])
-        sers.append(pd.Series(vals, part.index))
+        sers.append(pd.Series(vals, part.index, dtype='category'))
       df = pd.concat(sers, axis=1, sort=True)
       self._analyses['durations'] = df
       df.columns = m21objs.columns
@@ -283,7 +284,7 @@ class Score:
   def pianoRoll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
     if 'pianoRoll' not in self._analyses:
-      mp = self.midiPitches().ffill().astype(int)
+      mp = self.midiPitches().ffill()
       pianoRoll = pd.DataFrame(index=range(128), columns=mp.index.values)
       for offset in mp.index:
         for pitch in mp.loc[offset]:

@@ -82,7 +82,7 @@ class Score:
           if name == 'Cdata':
             df2 = pd.DataFrame([ast.literal_eval(val) for val in vals], index=valPositions)
           else:
-            df2 = pd.DataFrame({name: vals}, index=valPositions, dtype='category')
+            df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
           res = joined.iloc[:, 2:].copy()  # get all the columns from the third to the end. Usually just 1 col except for cdata
           res.index = joined['Offset']
@@ -90,7 +90,7 @@ class Score:
           self._analyses[(spine.spineType, 0)] = res
           if spine.spineType == 'harm' and len(keyVals):
             keyName = 'harmKeys'
-            df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions, dtype='category')
+            df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
             df3 = joined.iloc[:, 2:].copy()
             df3.index = joined['Offset']
@@ -113,8 +113,7 @@ class Score:
   
   def lyrics(self):
     if 'lyrics' not in self._analyses:
-      lyrics = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
-      self._analyses['lyrics'] = lyrics.astype('category')  # 'category' type saves memory at small performance cost
+      self._analyses['lyrics'] = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self._analyses['lyrics']
 
   def _priority(self):
@@ -218,7 +217,7 @@ class Score:
     example, can help detect section divisions, and the final barline can help
     process the `highestTime` similar to music21.'''
     if "_barlines" not in self._analyses:
-      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])}, dtype='category')
+      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
                             for part in self._semiFlatParts)
       df = pd.concat(partBarlines, axis=1)
       df.columns = self.partNames
@@ -237,7 +236,7 @@ class Score:
         else:
           vals = []
         vals.append(self.score.highestTime - part.index[-1])
-        sers.append(pd.Series(vals, part.index, dtype='category'))
+        sers.append(pd.Series(vals, part.index))
       df = pd.concat(sers, axis=1, sort=True)
       self._analyses['durations'] = df
       df.columns = m21objs.columns
@@ -250,6 +249,37 @@ class Score:
       midiPitches = self._m21ObjectsNoTies().applymap(lambda noteOrRest: -1 if noteOrRest.isRest else noteOrRest.pitch.midi, na_action='ignore')
       self._analyses['midiPitches'] = midiPitches
     return self._analyses['midiPitches']
+
+  def _noteRestHelper(self, noteOrRest):
+    if noteOrRest.isRest:
+      return 'r'
+    return noteOrRest.nameWithOctave
+
+  def _combineRests(self, col):
+      col = col.dropna()
+      return col[(col != 'r') | ((col == 'r') & (col.shift(1) != 'r'))]
+
+  def _combineUnisons(self, col):
+      col = col.dropna()
+      return col[(col == 'r') | (col != col.shift(1))]
+
+  def notes(self, combine_rests=True, combine_unisons=False):
+    '''\tReturn a dataframe of the notes and rests given in American Standard Pitch
+    Notation where middle C is C4. Rests are designated with the string "r".
+
+    If `combine_rests` is True (default), non-first consecutive rests will be
+    removed, effectively combining consecutive rests in each voice.
+    `combine_unisons` works the same way for consecutive attacks on the same
+    pitch in a given voice, however, `combine_unisons` defaults to False.'''
+    if 'notes' not in self._analyses:
+      df = self._m21ObjectsNoTies().applymap(self._noteRestHelper, na_action='ignore')
+      self._analyses['notes'] = df
+    ret = self._analyses['notes'].copy()
+    if combine_rests:
+      ret = ret.apply(self._combineRests)
+    if combine_unisons:
+      ret = ret.apply(self._combineUnisons)
+    return ret
 
   def nmats(self, bpm=60):
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
@@ -332,3 +362,15 @@ class Score:
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self._analyses[key] = mask
     return self._analyses[key]
+  
+  def toKern(self, pathName=''):
+    '''\t*** WIP: currently not usable. ***
+    Create a kern representation of the score. If no `pathName` variable is
+    passed, then returns a pandas DataFrame of the kern representation. Otherwise
+    a file is created or overwritten at the `pathName` path. If pathName does not
+    end in '.krn' then this file extension will be added to the path.'''
+    me = '=' + self._measures().astype('string')
+    nr = self.notes()
+    du = self.durations().astype('string')
+    events = (du + nr).fillna('.')
+    return pd.concat([me, events]).sort_index()

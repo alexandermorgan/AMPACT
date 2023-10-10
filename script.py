@@ -9,6 +9,28 @@ import pdb
 # score_path = './test_files/B070_00_03c_b.krn'
 # score_path = './test_files/mozart.krn'
 imported_scores = {}
+_duration2Kern = {
+  24: '00.',
+  16: '00',
+  12: '0.',
+  8: '0',
+  6: '1.',
+  4: '1',
+  3: '2.',
+  2: '2',
+  1.5: '4.',
+  1: '4',
+  .75: '8.',
+  .5: '8',
+  .375: '16.',
+  .25: '16',
+  .1875: '32.',
+  .125: '32',
+  .09375: '64.',
+  .0625: '64',
+  .046875: '128.',
+  .03125: '128'
+}
 
 class Score:
   '''\tImport score via music21 and expose AMPACT's analysis utilities which are
@@ -281,6 +303,26 @@ class Score:
       ret = ret.apply(self._combineUnisons)
     return ret
 
+  def _kernNoteHelper(self, noteRest):
+    if noteRest.isRest:
+      return 'r'
+    oct = noteRest.octave
+    acc = noteRest.pitch.accidental
+    acc = acc.modifier if acc is not None else ''
+    if oct > 3:
+      return noteRest.step.lower() * (oct - 3) + acc
+    return noteRest.step * (4 - oct) + acc
+
+  def kernNotes(self):
+    '''\tReturn a dataframe of the notes and rests given in kern notation. This is
+    not the same as creating a kern format of a score, but is an important step
+    in that process.'''
+    if 'notes' not in self._analyses:
+      # this should preserve the status of a chord in the score
+      df = self._m21ObjectsNoTies().applymap(self._kernNoteHelper, na_action='ignore')
+      self._analyses['notes'] = df
+    return self._analyses['notes'].copy()
+
   def nmats(self, bpm=60):
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
     columns about the notes and rests in that voice:
@@ -370,7 +412,11 @@ class Score:
     a file is created or overwritten at the `pathName` path. If pathName does not
     end in '.krn' then this file extension will be added to the path.'''
     me = '=' + self._measures().astype('string')
-    nr = self.notes()
-    du = self.durations().astype('string')
-    events = (du + nr).fillna('.')
-    return pd.concat([me, events]).sort_index()
+    du = self.durations()
+    d2 = du.replace(_duration2Kern).astype('string')
+    nr = self.kernNotes()
+    events = (d2 + nr).fillna('.')
+    ba = self._barlines()
+    ba = ba[ba != 'regular'].dropna().replace({'double': '||'})
+    ba.iloc[-1, :] = '*='
+    return pd.concat([me, events, ba]).sort_index()

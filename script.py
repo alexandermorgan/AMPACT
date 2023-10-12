@@ -4,10 +4,8 @@ import music21 as m21
 import math
 import ast
 import pdb
+import json
 
-# score_path = './test_files/polyphonic4voices1note.mei'
-# score_path = './test_files/B070_00_03c_b.krn'
-# score_path = './test_files/mozart.krn'
 imported_scores = {}
 _duration2Kern = {
   24: '00.',
@@ -19,6 +17,7 @@ _duration2Kern = {
   3: '2.',
   2: '2',
   1.5: '4.',
+  1.3333: '3',
   1: '4',
   .75: '8.',
   .5: '8',
@@ -46,6 +45,7 @@ class Score:
     self._partStreams = self.score.getElementsByClass(m21.stream.Part)
     self._semiFlatParts = [part.semiFlat for part in self._partStreams]
     self.partNames = []
+    self.partDivisi = {}
     self.public = '\n'.join([f'{prop.ljust(15)}{type(getattr(self, prop))}' for prop in dir(self) if not prop.startswith('_')])
     self._analyses = {}
     for i, part in enumerate(self._semiFlatParts):
@@ -64,9 +64,11 @@ class Score:
           offsets.append(round(float(nrc.offset), 4))
       df = pd.DataFrame(events, index=offsets)
       if len(df.columns) > 1:
-        df.columns = [':'.join((self.partNames[i], str(j))) for j in range(1, len(df.columns) + 1)]
+        divisi = [':'.join((self.partNames[i], str(j))) for j in range(1, len(df.columns) + 1)]
       else:
-        df.columns = [self.partNames[i]]
+        divisi = [self.partNames[i]]
+      df.columns = divisi
+      self.partDivisi[self.partNames[i]] = len(divisi)
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
@@ -227,10 +229,12 @@ class Score:
   def _measures(self):
     '''\tReturn df of the measure starting points.'''
     if "_measure" not in self._analyses:
-      partMeasures = tuple(pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
-                            for part in self._semiFlatParts)
+      partMeasures = []
+      for i, part in enumerate(self._semiFlatParts):
+        ser = pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
+        partMeasures.extend([ser] * self.partDivisi[self.partNames[i]])
       df = pd.concat(partMeasures, axis=1)
-      df.columns = self.partNames
+      df.columns = self._m21_objects().columns
       self._analyses["_measure"] = df
     return self._analyses["_measure"]
 
@@ -239,10 +243,12 @@ class Score:
     example, can help detect section divisions, and the final barline can help
     process the `highestTime` similar to music21.'''
     if "_barlines" not in self._analyses:
-      partBarlines = tuple(pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
-                            for part in self._semiFlatParts)
+      partBarlines = []
+      for i, part in enumerate(self._semiFlatParts):
+        ser = pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
+        partBarlines.extend([ser] * self.partDivisi[self.partNames[i]])
       df = pd.concat(partBarlines, axis=1)
-      df.columns = self.partNames
+      df.columns = self._m21_objects().columns
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 
@@ -307,11 +313,13 @@ class Score:
     if noteRest.isRest:
       return 'r'
     oct = noteRest.octave
+    # TODO: this doesn't seem to be detecting longas in scores. Does m21 just not detect longas in kern files? Test with mei, midi, and xml
+    longa = 'l' if noteRest.duration.type == 'longa' else ''
     acc = noteRest.pitch.accidental
     acc = acc.modifier if acc is not None else ''
     if oct > 3:
-      return noteRest.step.lower() * (oct - 3) + acc
-    return noteRest.step * (4 - oct) + acc
+      return ''.join((noteRest.step.lower() * (oct - 3), longa, acc))
+    return ''.join((noteRest.step * (4 - oct), longa, acc))
 
   def kernNotes(self):
     '''\tReturn a dataframe of the notes and rests given in kern notation. This is
@@ -404,19 +412,86 @@ class Score:
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self._analyses[key] = mask
     return self._analyses[key]
+
+  def fromJSON(self, json_path):
+    '''\tWIP: Return a pandas dataframe of the JSON file. The outermost keys will get
+    interpretted as the index values of the table, and the second-level keys
+    will be the columns.'''
+    with open(json_path) as json_data:
+      data = json.load(json_data)
+    df = pd.DataFrame(data).T
+    df.index = pd.DatetimeIndex(df.index)
+    return df
   
-  def toKern(self, pathName=''):
-    '''\t*** WIP: currently not usable. ***
-    Create a kern representation of the score. If no `pathName` variable is
+  def _kernHeader(self):
+    '''\tReturn a string of the kern format header global comments.'''
+    data = [
+      f'!!!COM: {self.metadata["Composer"] or "Composer not found"}',
+      f'!!!OTL: {self.metadata["Title"] or "Title not found"}'
+    ]
+    return '\n'.join(data)
+    # f'!!!voices: {len(cols)}', 
+    # ['**kern'] * len(cols),
+
+  def _kernFooter(self):
+    '''Return a string of the kern format footer global comments.'''
+    from datetime import datetime
+    data = [
+      '!!!RDF**kern: l=long note in original notation',
+      '!!!RDF**kern: i=editorial accidental',
+      f'!!!ONB: Translated from {self.fileExtension} file on {datetime.today().strftime("%Y-%m-%d")} via AMPACT'
+    ]
+    if 'Title' in self.metadata:
+      data.append('!!!title: @{OTL}')
+    return '\n'.join(data)
+
+  def toKern(self, path_name='', data=''):
+    '''\t*** WIP: currently not outputting valid kern files. ***
+    Create a kern representation of the score. If no `path_name` variable is
     passed, then returns a pandas DataFrame of the kern representation. Otherwise
-    a file is created or overwritten at the `pathName` path. If pathName does not
+    a file is created or overwritten at the `path_name` path. If path_name does not
     end in '.krn' then this file extension will be added to the path.'''
-    me = '=' + self._measures().astype('string')
-    du = self.durations()
-    d2 = du.replace(_duration2Kern).astype('string')
-    nr = self.kernNotes()
-    events = (d2 + nr).fillna('.')
-    ba = self._barlines()
-    ba = ba[ba != 'regular'].dropna().replace({'double': '||'})
-    ba.iloc[-1, :] = '*='
-    return pd.concat([me, events, ba]).sort_index()
+    key = ('toKern', data)
+    if key not in self._analyses:
+      me = '=' + self._measures().astype('string')
+      du = self.durations()
+      d2 = du.replace(_duration2Kern).astype('string')
+      nr = self.kernNotes()
+      events = (d2 + nr)
+      events = events[reversed(events.columns)]
+      ba = self._barlines()
+      ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})
+      # ba.loc[self.score.highestTime, :] = '=='
+      if data:
+        cdata = self.fromJSON(data)
+        cdata.index = cdata.index.second
+        firstTokens = ['**kern'] * len(events.columns) + ['**data'] * len(cdata.columns)
+        instruments = ['*Ivox'] * len(events.columns) + ['*'] * len(cdata.columns)
+        partNames = [f'*I"{name}' for name in events.columns] + [f'*{col}' for col in cdata.columns]
+        shortNames = [f"*I'{name[0]}" for name in events.columns] + ['*'] * len(cdata.columns)
+        events = pd.concat([events, cdata], axis=1)
+      else:
+        firstTokens = ['**kern'] * len(events.columns)
+        instruments = ['*Ivox'] * len(events.columns)
+        partNames = [f'*I"{name}' for name in events.columns]
+        shortNames = [f"*I'{name[0]}" for name in events.columns]
+      me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
+      ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
+      me.columns = events.columns
+      ba.columns = events.columns
+      partTokens = pd.DataFrame([firstTokens, instruments, partNames, shortNames, ['*-']*len(events.columns)],
+                                index=[-10, -9, -8, -7, int(self.score.highestTime + 1)])
+      partTokens.columns = events.columns
+      body = pd.concat([partTokens, me, events, ba]).sort_index(kind='mergesort').fillna('.')
+      body = body.to_csv(sep='\t', header=False, index=False)
+      result = ''.join([self._kernHeader(), '\n', body, self._kernFooter()])
+      self._analyses[key] = result
+    if not path_name:
+      return self._analyses[key]
+    else:
+      if not path_name.endswith('.krn'):
+        path_name += '.krn'
+      if '/' not in path_name:
+        path_name = './output_files/' + path_name
+      with open(path_name, 'w') as f:
+        f.write(self._analyses[key])

@@ -462,7 +462,8 @@ class Score:
     end in '.krn' then this file extension will be added to the path.'''
     key = ('toKern', data)
     if key not in self._analyses:
-      me = '=' + self._measures().astype('string')
+      _me = self._measures()
+      me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
       du = self.durations()
       d2 = du.replace(_duration2Kern).astype('string')
       nr = self.kernNotes()
@@ -488,11 +489,13 @@ class Score:
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns
       ba.columns = events.columns
+      ts = ('*M' + self._timeSignatures())
+      ts = ts.reindex(events.columns, axis=1).fillna('*')
       partTokens = pd.DataFrame([firstTokens, instruments, partNames, shortNames, ['*-']*len(events.columns)],
                                 index=[-10, -9, -8, -7, int(self.score.highestTime + 1)])
       partTokens.columns = events.columns
-      body = pd.concat([partTokens, me, events, ba]).sort_index(kind='mergesort').fillna('.')
-      body = body.to_csv(sep='\t', header=False, index=False)
+      body = pd.concat([partTokens, me, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
+      body = body.to_csv(sep='\t', header=False, index=False, quotechar='`')
       result = ''.join([self._kernHeader(), '\n', body, self._kernFooter()])
       self._analyses[key] = result
     if not path_name:

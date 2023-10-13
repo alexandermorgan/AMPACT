@@ -252,6 +252,15 @@ class Score:
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 
+  def _timeSignatures(self):
+    if '_timeSignatures' not in self._analyses:
+      tsigs = []
+      for i, part in enumerate(self._semiFlatParts):
+        tsigs.append(pd.Series({ts.offset: ts.ratioString for ts in part.getTimeSignatures()}, name=self.partNames[i]))
+      df = pd.concat(tsigs, axis=1).sort_index(kind='mergesort')
+      self._analyses['_timeSignatures'] = df
+    return self._analyses['_timeSignatures']
+
   def durations(self):
     '''\tReturn dataframe of durations of note and rest objects in piece.'''
     if 'durations' not in self._analyses:

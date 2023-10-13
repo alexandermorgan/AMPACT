@@ -252,6 +252,16 @@ class Score:
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 
+  def _keySignatures(self):
+    if '_keySignatures' not in self._analyses:
+      kSigs = []
+      for i, part in enumerate(self._semiFlatParts):
+        kSigs.append(pd.Series({ms.offset: ''.join([_note.name for _note in ms.keySignature.alteredPitches]).lower()
+                                for ms in part.getElementsByClass(['Measure']) if ms.keySignature is not None}, name=self.partNames[i]))
+      df = pd.concat(kSigs, axis=1).sort_index(kind='mergesort')
+      self._analyses['_keySignatures'] = df
+    return self._analyses['_keySignatures']
+
   def _timeSignatures(self):
     if '_timeSignatures' not in self._analyses:
       tsigs = []
@@ -464,14 +474,13 @@ class Score:
     if key not in self._analyses:
       _me = self._measures()
       me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
-      du = self.durations()
-      d2 = du.replace(_duration2Kern).astype('string')
+      d2 = self.durations().replace(_duration2Kern).astype('string')
       nr = self.kernNotes()
       events = (d2 + nr)
       events = events[reversed(events.columns)]
       ba = self._barlines()
       ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})
-      # ba.loc[self.score.highestTime, :] = '=='
+      ba.loc[self.score.highestTime, :] = '=='
       if data:
         cdata = self.fromJSON(data)
         cdata.index = cdata.index.second
@@ -491,10 +500,12 @@ class Score:
       ba.columns = events.columns
       ts = ('*M' + self._timeSignatures())
       ts = ts.reindex(events.columns, axis=1).fillna('*')
+      ks = '*k[' + self._keySignatures() + ']'
+      ks = ks.reindex(events.columns, axis=1).fillna('*')
       partTokens = pd.DataFrame([firstTokens, instruments, partNames, shortNames, ['*-']*len(events.columns)],
                                 index=[-10, -9, -8, -7, int(self.score.highestTime + 1)])
       partTokens.columns = events.columns
-      body = pd.concat([partTokens, me, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
+      body = pd.concat([partTokens, me, ks, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
       body = body.to_csv(sep='\t', header=False, index=False, quotechar='`')
       result = ''.join([self._kernHeader(), '\n', body, self._kernFooter()])
       self._analyses[key] = result

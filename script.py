@@ -5,6 +5,10 @@ import math
 import ast
 import pdb
 import json
+import requests
+import os
+import tempfile
+m21.environment.set('autoDownload', 'allow')
 
 imported_scores = {}
 _duration2Kern = {
@@ -35,22 +39,45 @@ class Score:
   '''\tImport score via music21 and expose AMPACT's analysis utilities which are
   generally formatted as Pandas DataFrames.'''
   def __init__(self, score_path):
+    self._analyses = {}
     self.path = score_path
-    if score_path not in imported_scores:
-      imported_scores[score_path] = m21.converter.parse(score_path)
-    self.score = m21.converter.parse(score_path)
+    self._tempFile = ''
     self.fileName = score_path.rsplit('.', 1)[0].rsplit('/')[-1]
     self.fileExtension = score_path.rsplit('.', 1)[1]
+    if score_path.startswith('http') and self.fileExtension == 'krn':
+      fd, tmp_path = tempfile.mkstemp()
+      try:
+        with os.fdopen(fd, 'w') as tmp:
+          response = requests.get(self.path)
+          tmp.write(response.text)
+          tmp.seek(0)
+          self.score = self._assignM21Attributes(tmp_path)
+          self._import_function_harm_spines(tmp_path)
+      finally:
+        os.remove(tmp_path)
+    else:  # file is not an online kern file (can be either or neither but not both)
+      self.score = self._assignM21Attributes()
+      self._import_function_harm_spines()
+    self.public = '\n'.join([f'{prop.ljust(15)}{type(getattr(self, prop))}' for prop in dir(self) if not prop.startswith('_')])
+  
+  def _assignM21Attributes(self, path=''):
+    '''\tReturn a music21 score. This method is used internally for memoization purposes.'''
+    if self.path not in imported_scores:
+      if path:
+        imported_scores[self.path] = m21.converter.parse(path, format='humdrum')
+      else:
+        imported_scores[self.path] = m21.converter.parse(self.path)
+    self.score = imported_scores[self.path]
     self.metadata = {'Title': self.score.metadata.title, 'Composer': self.score.metadata.composer}
     self._partStreams = self.score.getElementsByClass(m21.stream.Part)
     self._semiFlatParts = [part.semiFlat for part in self._partStreams]
+
     self.partNames = []
-    self.partDivisi = {}
-    self.public = '\n'.join([f'{prop.ljust(15)}{type(getattr(self, prop))}' for prop in dir(self) if not prop.startswith('_')])
-    self._analyses = {}
     for i, part in enumerate(self._semiFlatParts):
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
+    
+    self.partDivisi = {}
     self.parts = []
     for i, flat_part in enumerate(self._semiFlatParts):
       elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
@@ -72,13 +99,43 @@ class Score:
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
-    self._import_function_harm_spines()
-  
-  def _import_function_harm_spines(self):
-    if self.fileExtension == 'krn':
-      humFile = m21.humdrum.spineParser.HumdrumFile(self.path)
+
+  def _parts(self):
+    '''\tReturn a df of the note, rest, and chord objects in the score. The difference between
+    parts and divisi is that parts can have chords whereas divisi cannot. If there are chords
+    in the _parts df, the divisi df will include all these notes by adding additional columns.'''
+    if '_parts' not in self._analyses:
+      parts = []
+      for i, flat_part in enumerate(self._semiFlatParts):
+        ser = pd.Series(flat_part.getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[i])
+        ser.index = ser.apply(lambda nrc: nrc.offset).round(4)
+        ser = ser[~ser.index.duplicated(keep='last')]
+        parts.append(ser)
+      self._analyses['_parts'] = pd.concat(parts, axis=1, sort=True)
+    return self._analyses['_parts']
+
+  def _divisi(self):
+    '''\tReturn a df of the note and rest objects in the score without chords. The difference between
+    parts and divisi is that parts can have chords whereas divisi cannot. If there are chords
+    in the _parts df, the divisi df will include all these notes by adding additional columns.'''
+    if '_divisi' not in self._analyses:
+      parts = self._parts()
+      divisi = []
+      for i, col in enumerate(parts.columns):
+        part = parts[col].dropna()
+        div = part.apply(lambda nrc: nrc.notes if nrc.isChord else (nrc,)).apply(pd.Series)
+        if len(div.columns) > 1:
+          div.columns = [':'.join((self.partNames[i], str(j))) for j in range(1, len(div.columns) + 1)]
+        else:
+          div.columns = [self.partNames[i]]
+        divisi.append(div)
+      self._analyses['_divisi'] = pd.concat(divisi, axis=1, sort=True)
+    return self._analyses['_divisi']
+
+  def _import_function_harm_spines(self, path=''):
+    if self.fileExtension == 'krn' or path:
+      humFile = m21.humdrum.spineParser.HumdrumFile(path or self.path)
       humFile.parseFilename()
-      objs = self._m21_objects()
       for spine in humFile.spineCollection:
         if spine.spineType in ('harm', 'function', 'cdata'):
           start = False
@@ -115,6 +172,7 @@ class Score:
           if spine.spineType == 'harm' and len(keyVals):
             keyName = 'harmKeys'
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
+            # pdb.set_trace()
             joined = df1.join(df3, on='Priority')
             df3 = joined.iloc[:, 2:].copy()
             df3.index = joined['Offset']
@@ -130,28 +188,27 @@ class Score:
     if ('cdata', 0) not in self._analyses:
       self._analyses[('cdata', 0)] = pd.DataFrame()
   
-  def _m21_objects(self):
-    if '_m21_objects' not in self._analyses:
-      self._analyses['_m21_objects'] = pd.concat(self.parts, axis=1, sort=True)
-    return self._analyses['_m21_objects']
+  # def _m21_objects(self):
+  #   if '_m21_objects' not in self._analyses:
+  #     self._analyses['_m21_objects'] = pd.concat(self._divisi(), axis=1, sort=True)
+  #   return self._analyses['_m21_objects']
   
   def lyrics(self):
     if 'lyrics' not in self._analyses:
-      self._analyses['lyrics'] = self._m21_objects().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
+      self._analyses['lyrics'] = self._divisi().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self._analyses['lyrics']
 
   def _priority(self):
     '''\tFor .krn files, get the line numbers of the events in the piece, which music21
     often calls "priority". For other encoding formats return an empty dataframe.'''
-    if '_priority' in self._analyses:
-      return self._analyses['_priority']
-    if self.fileExtension != 'krn':
-      priority = pd.DataFrame()
-    else:
-      priority = self._m21_objects().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype('Int16')
-      priority = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
-    self._analyses['_priority'] = priority
-    return priority
+    if '_priority' not in self._analyses:
+      if self.fileExtension != 'krn':
+        priority = pd.DataFrame()
+      else:
+        priority = self._parts().applymap(lambda cell: cell.priority, na_action='ignore').ffill(axis=1).iloc[:, -1].astype('Int16')
+        priority = pd.DataFrame({'Priority': priority.values, 'Offset': priority.index})
+      self._analyses['_priority'] = priority
+    return self._analyses['_priority']
 
   def _reindex_like_sampled(self, df, bpm=60, obs=20):
     '''\tGiven a pandas.DataFrame, reindex it like the columns of the piano roll sampled
@@ -223,7 +280,7 @@ class Score:
 
   def _m21ObjectsNoTies(self):
     if '_m21ObjectsNoTies' not in self._analyses:
-      self._analyses['_m21ObjectsNoTies'] = self._m21_objects().applymap(self._remove_tied).dropna(how='all')
+      self._analyses['_m21ObjectsNoTies'] = self._divisi().applymap(self._remove_tied).dropna(how='all')
     return self._analyses['_m21ObjectsNoTies']
 
   def _measures(self):
@@ -234,7 +291,7 @@ class Score:
         ser = pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
         partMeasures.extend([ser] * self.partDivisi[self.partNames[i]])
       df = pd.concat(partMeasures, axis=1)
-      df.columns = self._m21_objects().columns
+      df.columns = self._divisi().columns
       self._analyses["_measure"] = df
     return self._analyses["_measure"]
 
@@ -248,7 +305,7 @@ class Score:
         ser = pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
         partBarlines.extend([ser] * self.partDivisi[self.partNames[i]])
       df = pd.concat(partBarlines, axis=1)
-      df.columns = self._m21_objects().columns
+      df.columns = self._divisi().columns
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 

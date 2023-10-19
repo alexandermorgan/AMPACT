@@ -11,7 +11,9 @@ import tempfile
 m21.environment.set('autoDownload', 'allow')
 
 imported_scores = {}
-_duration2Kern = {
+_duration2Kern = {  # keys get rounded to 5 decimal places
+  48: '000.',
+  32: '000',
   24: '00.',
   16: '00',
   12: '0.',
@@ -19,9 +21,10 @@ _duration2Kern = {
   6: '1.',
   4: '1',
   3: '2.',
+  2.66666: '3%2',
   2: '2',
   1.5: '4.',
-  1.3333: '3',
+  1.33333: '3',
   1: '4',
   .75: '8.',
   .5: '8',
@@ -31,8 +34,10 @@ _duration2Kern = {
   .125: '32',
   .09375: '64.',
   .0625: '64',
-  .046875: '128.',
-  .03125: '128'
+  .04688: '128.',
+  .03125: '128',
+  .02344: '256.',
+  .01563: '256'
 }
 
 class Score:
@@ -51,12 +56,12 @@ class Score:
           response = requests.get(self.path)
           tmp.write(response.text)
           tmp.seek(0)
-          self.score = self._assignM21Attributes(tmp_path)
+          self._assignM21Attributes(tmp_path)
           self._import_function_harm_spines(tmp_path)
       finally:
         os.remove(tmp_path)
     else:  # file is not an online kern file (can be either or neither but not both)
-      self.score = self._assignM21Attributes()
+      self._assignM21Attributes()
       self._import_function_harm_spines()
     self.public = '\n'.join([f'{prop.ljust(15)}{type(getattr(self, prop))}' for prop in dir(self) if not prop.startswith('_')])
   
@@ -385,27 +390,58 @@ class Score:
       ret = ret.apply(self._combineUnisons)
     return ret
 
-  def _kernNoteHelper(self, noteRest):
-    if noteRest.isRest:
-      return 'r'
-    oct = noteRest.octave
+  def _kernNoteHelper(self, _note):
+    '''\tParse a music21 note object into a kern note token.'''
     # TODO: this doesn't seem to be detecting longas in scores. Does m21 just not detect longas in kern files? Test with mei, midi, and xml
-    longa = 'l' if noteRest.duration.type == 'longa' else ''
-    acc = noteRest.pitch.accidental
+    dur = _duration2Kern[round(_note.quarterLength, 5)]
+    _oct = _note.octave
+    if _oct > 3:
+      step = _note.step.lower() * (_oct - 3)
+    else:
+      step = _note.step * (4 - _oct)
+    acc = _note.pitch.accidental
     acc = acc.modifier if acc is not None else ''
-    if oct > 3:
-      return ''.join((noteRest.step.lower() * (oct - 3), longa, acc))
-    return ''.join((noteRest.step * (4 - oct), longa, acc))
+    longa = 'l' if _note.duration.type == 'longa' else ''
+    return f'{dur}{step}{acc}{longa}'
+
+  def _kernChordHelper(self, _chord):
+    '''\tParse a music21 chord object into a kern chord token.'''
+    # TODO: figure out how durations are handled in kern chords. Might need to pass the chord's duration down to this func since m21 pitch objects don't have duration attributes
+    pitches = []
+    dur = _duration2Kern[round(_chord.quarterLength, 5)]
+    for _pitch in _chord.pitches:
+      _oct = _pitch.octave
+      if _oct > 3:
+        letter = _pitch.step.lower() * (_oct - 3)
+      else:
+        letter = _pitch.step * (4 - _oct)
+      acc = _pitch.accidental
+      acc = acc.modifier if acc is not None else ''
+      longa = '' #'l' if _pitch.duration.type == 'longa' else ''
+      pitches.extend((dur, letter, acc, longa, ' '))
+    if len(pitches):
+      return ''.join(pitches[:-1])
+    else:
+      return ''
+
+  def _kernNRCHelper(self, nrc):
+    '''\tConvert a music21 note, rest, or chord object to its corresponding kern token.'''
+    if nrc.isNote:
+      return self._kernNoteHelper(nrc)
+    elif nrc.isRest:
+      return f'{_duration2Kern[round(nrc.quarterLength, 5)]}r'
+    else:
+      return self._kernChordHelper(nrc)
 
   def kernNotes(self):
     '''\tReturn a dataframe of the notes and rests given in kern notation. This is
     not the same as creating a kern format of a score, but is an important step
     in that process.'''
-    if 'notes' not in self._analyses:
-      # this should preserve the status of a chord in the score
-      df = self._m21ObjectsNoTies().applymap(self._kernNoteHelper, na_action='ignore')
-      self._analyses['notes'] = df
-    return self._analyses['notes'].copy()
+    if 'kernNotes' not in self._analyses:
+      parts = self._parts()
+      df = parts.applymap(self._kernNRCHelper, na_action='ignore')
+      self._analyses['kernNotes'] = df
+    return self._analyses['kernNotes'].copy()
 
   def nmats(self, bpm=60):
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
@@ -513,6 +549,7 @@ class Score:
     '''Return a string of the kern format footer global comments.'''
     from datetime import datetime
     data = [
+      '!!!RDF**kern: %=rational rhythm',
       '!!!RDF**kern: l=long note in original notation',
       '!!!RDF**kern: i=editorial accidental',
       f'!!!ONB: Translated from {self.fileExtension} file on {datetime.today().strftime("%Y-%m-%d")} via AMPACT'
@@ -531,9 +568,7 @@ class Score:
     if key not in self._analyses:
       _me = self._measures()
       me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
-      d2 = self.durations().replace(_duration2Kern).astype('string')
-      nr = self.kernNotes()
-      events = (d2 + nr)
+      events = self.kernNotes()
       events = events[reversed(events.columns)]
       ba = self._barlines()
       ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})

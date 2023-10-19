@@ -131,6 +131,7 @@ class Score:
         div = part.apply(lambda nrc: nrc.notes if nrc.isChord else (nrc,)).apply(pd.Series)
         if len(div.columns) > 1:
           div.columns = [':'.join((self.partNames[i], str(j))) for j in range(1, len(div.columns) + 1)]
+          div.ffill(axis=1, inplace=True)
         else:
           div.columns = [self.partNames[i]]
         divisi.append(div)
@@ -468,9 +469,10 @@ class Score:
         part = pd.Series(partName, midi.index)
         onsetSec = onsetBeat * toSeconds
         offsetSec = (onsetBeat + durBeat) * toSeconds
-        df = pd.concat([meas, onsetBeat, durBeat, part, midi, onsetSec, offsetSec], axis=1)
+        df = pd.concat([meas, onsetBeat, durBeat, part, midi, onsetSec, offsetSec], axis=1, sort=True)
         df.columns = ['MEASURE', 'ONSET_BEAT', 'DURATION_BEAT', 'PART', 'MIDI', 'ONSET_SEC', 'OFFSET_SEC']
-        nmats[partName] = df
+        df.MEASURE.ffill(inplace=True)
+        nmats[partName] = df.dropna()
       self._analyses[key] = nmats
     return self._analyses[key]
 

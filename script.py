@@ -192,12 +192,7 @@ class Score:
       self._analyses[('harmKeys', 0)] = pd.DataFrame()
     if ('cdata', 0) not in self._analyses:
       self._analyses[('cdata', 0)] = pd.DataFrame()
-  
-  # def _m21_objects(self):
-  #   if '_m21_objects' not in self._analyses:
-  #     self._analyses['_m21_objects'] = pd.concat(self._divisi(), axis=1, sort=True)
-  #   return self._analyses['_m21_objects']
-  
+
   def lyrics(self):
     if 'lyrics' not in self._analyses:
       self._analyses['lyrics'] = self._divisi().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
@@ -288,17 +283,21 @@ class Score:
       self._analyses['_m21ObjectsNoTies'] = self._divisi().applymap(self._remove_tied).dropna(how='all')
     return self._analyses['_m21ObjectsNoTies']
 
-  def _measures(self):
+  def _measures(self, divisi=True):
     '''\tReturn df of the measure starting points.'''
-    if "_measure" not in self._analyses:
+    key = ('_measure', divisi)
+    if key not in self._analyses:
       partMeasures = []
       for i, part in enumerate(self._semiFlatParts):
         ser = pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
-        partMeasures.extend([ser] * self.partDivisi[self.partNames[i]])
+        if divisi:
+          partMeasures.extend([ser] * self.partDivisi[self.partNames[i]])
+        else:
+          partMeasures.append(ser)
       df = pd.concat(partMeasures, axis=1)
-      df.columns = self._divisi().columns
-      self._analyses["_measure"] = df
-    return self._analyses["_measure"]
+      df.columns = self._divisi().columns if divisi else self.partNames
+      self._analyses[key] = df
+    return self._analyses[key]
 
   def _barlines(self):
     '''\tReturn df of barlines specifying which barline type. Double barline, for
@@ -447,7 +446,7 @@ class Score:
     '''\tReturn a dictionary of dataframes, one for each voice, each with the following
     columns about the notes and rests in that voice:
 
-    ONSET_BEAT    DURATION_BEAT    PART    MIDI    ONSET_SEC    OFFSET_SEC
+    MEASURE    ONSET_BEAT    DURATION_BEAT    PART    MIDI    ONSET_SEC    OFFSET_SEC
 
     In the MIDI column, notes are represented with their midi pitch numbers 0 to 127
     inclusive, and rests are represented with -1s. The ONSET and OFFSET columns given
@@ -459,16 +458,18 @@ class Score:
       nmats = {}
       dur = self.durations()
       mp = self.midiPitches()
+      ms = self._measures()
       toSeconds = 60/bpm
       for i, partName in enumerate(self.partNames):
+        meas = ms.iloc[:, i]
         midi = mp.iloc[:, i].dropna()
         onsetBeat = midi.index.to_series()
         durBeat = dur.iloc[:, i].dropna()
         part = pd.Series(partName, midi.index)
         onsetSec = onsetBeat * toSeconds
         offsetSec = (onsetBeat + durBeat) * toSeconds
-        df = pd.concat([onsetBeat, durBeat, part, midi, onsetSec, offsetSec], axis=1)
-        df.columns = ['ONSET_BEAT', 'DURATION_BEAT', 'PART', 'MIDI', 'ONSET_SEC', 'OFFSET_SEC']
+        df = pd.concat([meas, onsetBeat, durBeat, part, midi, onsetSec, offsetSec], axis=1)
+        df.columns = ['MEASURE', 'ONSET_BEAT', 'DURATION_BEAT', 'PART', 'MIDI', 'ONSET_SEC', 'OFFSET_SEC']
         nmats[partName] = df
       self._analyses[key] = nmats
     return self._analyses[key]

@@ -555,40 +555,61 @@ class Score:
       '!!!RDF**kern: %=rational rhythm',
       '!!!RDF**kern: l=long note in original notation',
       '!!!RDF**kern: i=editorial accidental',
-      f'!!!ONB: Translated from {self.fileExtension} file on {datetime.today().strftime("%Y-%m-%d")} via AMPACT'
+      f'!!!ONB: Translated from a {self.fileExtension} file on {datetime.today().strftime("%Y-%m-%d")} via AMPACT'
     ]
     if 'Title' in self.metadata:
       data.append('!!!title: @{OTL}')
     return '\n'.join(data)
 
-  def toKern(self, path_name='', data=''):
+  def toKern(self, path_name='', data='', lyrics=True):
     '''\t*** WIP: currently not outputting valid kern files. ***
     Create a kern representation of the score. If no `path_name` variable is
     passed, then returns a pandas DataFrame of the kern representation. Otherwise
     a file is created or overwritten at the `path_name` path. If path_name does not
-    end in '.krn' then this file extension will be added to the path.'''
+    end in '.krn' then this file extension will be added to the path.
+    If `lyrics` is `True` (default) then the lyrics for each part will be added to
+    the output, if there are lyrics.'''
     key = ('toKern', data)
     if key not in self._analyses:
       _me = self._measures()
       me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
       events = self.kernNotes()
-      events = events[reversed(events.columns)]
+      includeLyrics = False
+      if lyrics and not self.lyrics().empty:
+        includeLyrics = True
+        lyr = self.lyrics()
+      _cols, firstTokens, partNumbers, staves, instruments, partNames, shortNames = [], [], [], [], [], [], []
+      for i in range(len(events.columns), 0, -1):   # reverse column order because kern order is lowest staves on the left
+        col = events.columns[i - 1]
+        _cols.append(events[col])
+        firstTokens.append('**kern')
+        partNumbers.append(f'*part{i}')
+        staves.append(f'*staff{i}')
+        instruments.append('*Ivox')
+        partNames.append(f'*I"{col}')
+        shortNames.append(f"*I'{col[0]}")
+        if includeLyrics and col in lyr.columns:
+          _cols.append(lyr[col])
+          firstTokens.append('**text')
+          partNumbers.append(f'*part{i}')
+          staves.append(f'*staff{i}')
+          instruments.append('*')
+          partNames.append('*')
+          shortNames.append('*')
+      events = pd.concat(_cols, axis=1)
       ba = self._barlines()
       ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})
       ba.loc[self.score.highestTime, :] = '=='
       if data:
         cdata = self.fromJSON(data)
         cdata.index = cdata.index.second
-        firstTokens = ['**kern'] * len(events.columns) + ['**data'] * len(cdata.columns)
-        instruments = ['*Ivox'] * len(events.columns) + ['*'] * len(cdata.columns)
-        partNames = [f'*I"{name}' for name in events.columns] + [f'*{col}' for col in cdata.columns]
-        shortNames = [f"*I'{name[0]}" for name in events.columns] + ['*'] * len(cdata.columns)
+        firstTokens.extend(['**data'] * len(cdata.columns))
+        partNumbers.extend(['*'] * len(cdata.columns))
+        staves.extend(['*'] * len(cdata.columns))
+        instruments.extend(['*'] * len(cdata.columns))
+        partNames.extend([f'*{col}' for col in cdata.columns])
+        shortNames.extend(['*'] * len(cdata.columns))
         events = pd.concat([events, cdata], axis=1)
-      else:
-        firstTokens = ['**kern'] * len(events.columns)
-        instruments = ['*Ivox'] * len(events.columns)
-        partNames = [f'*I"{name}' for name in events.columns]
-        shortNames = [f"*I'{name[0]}" for name in events.columns]
       me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns

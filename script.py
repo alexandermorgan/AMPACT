@@ -12,30 +12,42 @@ m21.environment.set('autoDownload', 'allow')
 
 imported_scores = {}
 _duration2Kern = {  # keys get rounded to 5 decimal places
+  56: '000..',
   48: '000.',
   32: '000',
+  28: '00..',
   24: '00.',
   16: '00',
+  14: '0..',
   12: '0.',
   8: '0',
+  7: '1..',
   6: '1.',
   4: '1',
+  3.5: '2..',
   3: '2.',
   2.66666: '3%2',
   2: '2',
+  1.75: '4..',
   1.5: '4.',
   1.33333: '3',
   1: '4',
+  .875: '8..',
   .75: '8.',
   .5: '8',
+  .4375: '16..',
   .375: '16.',
   .25: '16',
+  .21875: '32..',
   .1875: '32.',
   .125: '32',
+  .10938: '64..',
   .09375: '64.',
   .0625: '64',
+  .05469: '128..',
   .04688: '128.',
   .03125: '128',
+  .02734: '256..',
   .02344: '256.',
   .01563: '256'
 }
@@ -90,10 +102,11 @@ class Score:
       for nrc in elements:
         if nrc.isChord:
           events.append(nrc.notes)
-          offsets.append(round(float(nrc.offset), 4))
+          # TODO: should this be the same as the earlier nrc.offset command which uses astype(float) on the series?
+          offsets.append(round(float(nrc.offset), 5))
         else:
           events.append((nrc,))
-          offsets.append(round(float(nrc.offset), 4))
+          offsets.append(round(float(nrc.offset), 5))
       df = pd.DataFrame(events, index=offsets)
       if len(df.columns) > 1:
         divisi = [':'.join((self.partNames[i], str(j))) for j in range(1, len(df.columns) + 1)]
@@ -113,7 +126,7 @@ class Score:
       parts = []
       for i, flat_part in enumerate(self._semiFlatParts):
         ser = pd.Series(flat_part.getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[i])
-        ser.index = ser.apply(lambda nrc: nrc.offset).round(4)
+        ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
         ser = ser[~ser.index.duplicated(keep='last')]
         parts.append(ser)
       self._analyses['_parts'] = pd.concat(parts, axis=1, sort=True)
@@ -393,6 +406,32 @@ class Score:
   def _kernNoteHelper(self, _note):
     '''\tParse a music21 note object into a kern note token.'''
     # TODO: this doesn't seem to be detecting longas in scores. Does m21 just not detect longas in kern files? Test with mei, midi, and xml
+    startBracket, endBracket, beaming = '', '', ''
+    if hasattr(_note, 'tie') and _note.tie is not None:
+      if _note.tie.type == 'start':
+        startBracket += '['
+      elif _note.tie.type == 'continue':
+        endBracket += '_'
+      elif _note.tie.type == 'stop':
+        endBracket += ']'
+
+    spanners = _note.getSpannerSites()
+    if len(spanners):
+      for spanner in spanners:
+        if 'Slur' in spanner.classes:
+          if spanner.isFirst(_note):
+            startBracket = '(' + startBracket
+          elif spanner.isLast(_note):
+            endBracket += ')'
+
+    beams = _note.beams.beamsList
+    if len(beams):
+      for beam in beams:
+        if beam.type == 'start':
+          beaming += 'L'
+        elif beam.type == 'stop':
+          beaming += 'J'
+
     dur = _duration2Kern[round(_note.quarterLength, 5)]
     _oct = _note.octave
     if _oct > 3:
@@ -402,7 +441,7 @@ class Score:
     acc = _note.pitch.accidental
     acc = acc.modifier if acc is not None else ''
     longa = 'l' if _note.duration.type == 'longa' else ''
-    return f'{dur}{step}{acc}{longa}'
+    return f'{startBracket}{dur}{step}{acc}{longa}{beaming}{endBracket}'
 
   def _kernChordHelper(self, _chord):
     '''\tParse a music21 chord object into a kern chord token.'''

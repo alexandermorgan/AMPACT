@@ -212,6 +212,16 @@ class Score:
       self._analyses['lyrics'] = self._divisi().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self._analyses['lyrics']
 
+  def dynamics(self):
+    if 'dynamics' not in self._analyses:
+      dyns = [pd.Series({obj.offset: obj.value for obj in sf.getElementsByClass('Dynamic')}) for sf in self._semiFlatParts]
+      dyns = pd.concat(dyns, axis=1)
+      dyns.columns = self.partNames
+      pdb.set_trace()
+      dyns.dropna(how='all', axis=1, inplace=True)
+      self._analyses['dynamics'] = dyns
+    return self._analyses['dynamics']
+
   def _priority(self):
     '''\tFor .krn files, get the line numbers of the events in the piece, which music21
     often calls "priority". For other encoding formats return an empty dataframe.'''
@@ -432,7 +442,7 @@ class Score:
         elif beam.type == 'stop':
           beaming += 'J'
 
-    dur = _duration2Kern[round(_note.quarterLength, 5)]
+    dur = _duration2Kern[round(float(_note.quarterLength), 5)]
     _oct = _note.octave
     if _oct > 3:
       step = _note.step.lower() * (_oct - 3)
@@ -447,8 +457,10 @@ class Score:
     '''\tParse a music21 chord object into a kern chord token.'''
     # TODO: figure out how durations are handled in kern chords. Might need to pass the chord's duration down to this func since m21 pitch objects don't have duration attributes
     pitches = []
-    dur = _duration2Kern[round(_chord.quarterLength, 5)]
+    durs = [_chord.quarterLength]
     for _pitch in _chord.pitches:
+      durs.append(pitch.quarterLength)
+      pdb.set_trace()
       _oct = _pitch.octave
       if _oct > 3:
         letter = _pitch.step.lower() * (_oct - 3)
@@ -458,6 +470,7 @@ class Score:
       acc = acc.modifier if acc is not None else ''
       longa = '' #'l' if _pitch.duration.type == 'longa' else ''
       pitches.extend((dur, letter, acc, longa, ' '))
+    dur = _duration2Kern[round(float(max(durs)), 5)]
     if len(pitches):
       return ''.join(pitches[:-1])
     else:
@@ -468,7 +481,11 @@ class Score:
     if nrc.isNote:
       return self._kernNoteHelper(nrc)
     elif nrc.isRest:
-      return f'{_duration2Kern[round(nrc.quarterLength, 5)]}r'
+      dur = _duration2Kern.get(round(nrc.quarterLength, 5))
+      if dur is None:
+        pdb.set_trace()
+        # dur = ''
+      return f'{dur}r'
     else:
       return self._kernChordHelper(nrc)
 
@@ -600,23 +617,26 @@ class Score:
       data.append('!!!title: @{OTL}')
     return '\n'.join(data)
 
-  def toKern(self, path_name='', data='', lyrics=True):
+  def toKern(self, path_name='', data='', lyrics=True, dynamics=True):
     '''\t*** WIP: currently not outputting valid kern files. ***
     Create a kern representation of the score. If no `path_name` variable is
     passed, then returns a pandas DataFrame of the kern representation. Otherwise
     a file is created or overwritten at the `path_name` path. If path_name does not
     end in '.krn' then this file extension will be added to the path.
     If `lyrics` is `True` (default) then the lyrics for each part will be added to
-    the output, if there are lyrics.'''
+    the output, if there are lyrics. The same applies to `dynamics`'''
     key = ('toKern', data)
     if key not in self._analyses:
       _me = self._measures()
       me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
       events = self.kernNotes()
-      includeLyrics = False
+      includeLyrics, includeDynamics = False, False
       if lyrics and not self.lyrics().empty:
         includeLyrics = True
         lyr = self.lyrics()
+      if dynamics and not self.dynamics().empty:
+        includeDynamics = True
+        dyn = self.dynamics()
       _cols, firstTokens, partNumbers, staves, instruments, partNames, shortNames = [], [], [], [], [], [], []
       for i in range(len(events.columns), 0, -1):   # reverse column order because kern order is lowest staves on the left
         col = events.columns[i - 1]
@@ -630,6 +650,14 @@ class Score:
         if includeLyrics and col in lyr.columns:
           _cols.append(lyr[col])
           firstTokens.append('**text')
+          partNumbers.append(f'*part{i}')
+          staves.append(f'*staff{i}')
+          instruments.append('*')
+          partNames.append('*')
+          shortNames.append('*')
+        if includeDynamics and col in dyn.columns:
+          _cols.append(dyn[col])
+          firstTokens.append('**dynam')
           partNumbers.append(f'*part{i}')
           staves.append(f'*staff{i}')
           instruments.append('*')

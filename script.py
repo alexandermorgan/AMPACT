@@ -223,7 +223,6 @@ class Score:
       dyns = [pd.Series({obj.offset: obj.value for obj in sf.getElementsByClass('Dynamic')}) for sf in self._semiFlatParts]
       dyns = pd.concat(dyns, axis=1)
       dyns.columns = self.partNames
-      pdb.set_trace()
       dyns.dropna(how='all', axis=1, inplace=True)
       self._analyses['dynamics'] = dyns
     return self._analyses['dynamics']

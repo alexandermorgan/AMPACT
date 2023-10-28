@@ -463,10 +463,8 @@ class Score:
     '''\tParse a music21 chord object into a kern chord token.'''
     # TODO: figure out how durations are handled in kern chords. Might need to pass the chord's duration down to this func since m21 pitch objects don't have duration attributes
     pitches = []
-    durs = [_chord.quarterLength]
+    dur = _duration2Kern[round(float(_chord.quarterLength), 5)]
     for _pitch in _chord.pitches:
-      durs.append(pitch.quarterLength)
-      pdb.set_trace()
       _oct = _pitch.octave
       if _oct > 3:
         letter = _pitch.step.lower() * (_oct - 3)
@@ -476,7 +474,6 @@ class Score:
       acc = acc.modifier if acc is not None else ''
       longa = '' #'l' if _pitch.duration.type == 'longa' else ''
       pitches.extend((dur, letter, acc, longa, ' '))
-    dur = _duration2Kern[round(float(max(durs)), 5)]
     if len(pitches):
       return ''.join(pitches[:-1])
     else:

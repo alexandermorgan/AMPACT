@@ -456,7 +456,8 @@ class Score:
     acc = _note.pitch.accidental
     acc = acc.modifier if acc is not None else ''
     longa = 'l' if _note.duration.type == 'longa' else ''
-    return f'{startBracket}{dur}{step}{acc}{longa}{beaming}{endBracket}'
+    grace = '' if _note.sortTuple()[4] else 'q'
+    return f'{startBracket}{dur}{step}{acc}{longa}{grace}{beaming}{endBracket}'
 
   def _kernChordHelper(self, _chord):
     '''\tParse a music21 chord object into a kern chord token.'''
@@ -483,7 +484,7 @@ class Score:
     if nrc.isNote:
       return self._kernNoteHelper(nrc)
     elif nrc.isRest:
-      dur = _duration2Kern.get(round(nrc.quarterLength, 5))
+      dur = _duration2Kern.get(round(float(nrc.quarterLength), 5))
       if dur is None:
         pdb.set_trace()
         # dur = ''

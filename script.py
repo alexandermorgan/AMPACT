@@ -244,6 +244,43 @@ class Score:
       self._analyses['lyrics'] = self._divisi().applymap(lambda cell: cell.lyric or np.nan, na_action='ignore').dropna(how='all')
     return self._analyses['lyrics']
 
+  def _clefHelper(self, clef):
+    '''\tParse a music21 clef object into the corresponding humdrum syntax token.'''
+    octaveChange = ''
+    if clef.octaveChange > 0:
+      octaveChange = '^' * clef.octaveChange
+    elif clef.octaveChange < 0:
+      octaveChange = 'v' * abs(clef.octaveChange)
+    return f'*clef{clef.sign}{octaveChange}{clef.line}'
+
+  def _clefs(self):
+    if 'clefs' not in self._analyses:
+      parts = []
+      isUnique = True
+      for i, flat_part in enumerate(self._semiFlatParts):
+        ser = pd.Series(flat_part.getElementsByClass(['Clef']), name=self.partNames[i])
+        ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
+        # ser = ser[~ser.index.duplicated(keep='last')]
+        if not ser.index.is_unique:
+          isUnique = False
+        parts.append(ser)
+      if not isUnique:
+        for part in parts:
+          tieBreakers = []
+          nexts = part.index.to_series().shift(-1)
+          for i in range(-1, -1 - len(part.index), -1):
+            if part.index[i] == nexts.iat[i]:
+              tieBreakers.append(tieBreakers[-1] - 1)
+            else:
+              tieBreakers.append(0)
+          tieBreakers.reverse()
+          part.index = pd.MultiIndex.from_arrays((part.index, tieBreakers))
+      clefs = pd.concat(parts, axis=1)
+      if isinstance(clefs.index, pd.MultiIndex):
+        clefs = clefs.droplevel(1)
+      self._analyses['clefs'] = clefs.applymap(self._clefHelper, na_action='ignore')
+    return self._analyses['clefs']
+
   def dynamics(self):
     if 'dynamics' not in self._analyses:
       dyns = [pd.Series({obj.offset: obj.value for obj in sf.getElementsByClass('Dynamic')}) for sf in self._semiFlatParts]
@@ -719,14 +756,16 @@ class Score:
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns
       ba.columns = events.columns
-      ts = ('*M' + self._timeSignatures())
+      clefs = self._clefs()
+      clefs = clefs.reindex(events.columns, axis=1).fillna('*')
+      ts = '*M' + self._timeSignatures()
       ts = ts.reindex(events.columns, axis=1).fillna('*')
       ks = '*k[' + self._keySignatures() + ']'
       ks = ks.reindex(events.columns, axis=1).fillna('*')
       partTokens = pd.DataFrame([firstTokens, partNumbers, staves, instruments, partNames, shortNames, ['*-']*len(events.columns)],
                                 index=[-12, -11, -10, -9, -8, -7, int(self.score.highestTime + 1)])
       partTokens.columns = events.columns
-      body = pd.concat([partTokens, me, ks, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
+      body = pd.concat([partTokens, me, clefs, ks, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
       body = body.to_csv(sep='\t', header=False, index=False, quotechar='`')
       result = ''.join([self._kernHeader(), '\n', body, self._kernFooter()])
       self._analyses[key] = result

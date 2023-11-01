@@ -660,13 +660,13 @@ class Score:
     return self._analyses[key]
 
   def fromJSON(self, json_path):
-    '''\tWIP: Return a pandas dataframe of the JSON file. The outermost keys will get
-    interpretted as the index values of the table, and the second-level keys
-    will be the columns.'''
+    '''\tReturn a pandas dataframe of the JSON file. The outermost keys will get
+    interpretted as the index values of the table and should be in seconds with
+    decimal places allowed, and the second-level keys will be the columns.'''
     with open(json_path) as json_data:
       data = json.load(json_data)
     df = pd.DataFrame(data).T
-    df.index = pd.DatetimeIndex(df.index)
+    df.index = df.index.astype(float)
     return df
   
   def _kernHeader(self):

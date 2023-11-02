@@ -101,7 +101,7 @@ class Score:
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
     
-    self.partDivisi = {}
+    self._partDivisiCounts = {}
     self.parts = []
     for i, flat_part in enumerate(self._semiFlatParts):
       elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
@@ -120,7 +120,7 @@ class Score:
       else:
         divisi = [self.partNames[i]]
       df.columns = divisi
-      self.partDivisi[self.partNames[i]] = len(divisi)
+      self._partDivisiCounts[self.partNames[i]] = len(divisi)
       # for now remove multiple events at the same offset in a given part
       df = df[~df.index.duplicated(keep='last')]
       self.parts.append(df)
@@ -383,7 +383,7 @@ class Score:
       for i, part in enumerate(self._semiFlatParts):
         ser = pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
         if divisi:
-          partMeasures.extend([ser] * self.partDivisi[self.partNames[i]])
+          partMeasures.extend([ser] * self._partDivisiCounts[self.partNames[i]])
         else:
           partMeasures.append(ser)
       df = pd.concat(partMeasures, axis=1)
@@ -399,7 +399,7 @@ class Score:
       partBarlines = []
       for i, part in enumerate(self._semiFlatParts):
         ser = pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
-        partBarlines.extend([ser] * self.partDivisi[self.partNames[i]])
+        partBarlines.extend([ser] * self._partDivisiCounts[self.partNames[i]])
       df = pd.concat(partBarlines, axis=1)
       df.columns = self._divisi().columns
       self._analyses["_barlines"] = df
@@ -556,11 +556,7 @@ class Score:
     if nrc.isNote:
       return self._kernNoteHelper(nrc)
     elif nrc.isRest:
-      dur = _duration2Kern.get(round(float(nrc.quarterLength), 5))
-      # if dur is None:
-      #   pdb.set_trace()
-        # dur = ''
-      return f'{dur}r'
+      return f'{_duration2Kern.get(round(float(nrc.quarterLength), 5))}r'
     else:
       return self._kernChordHelper(nrc)
 
@@ -569,8 +565,8 @@ class Score:
     not the same as creating a kern format of a score, but is an important step
     in that process.'''
     if 'kernNotes' not in self._analyses:
-      parts = self._parts()
-      df = parts.applymap(self._kernNRCHelper, na_action='ignore')
+      divisi = self._divisi(multi_index=True)
+      df = divisi.applymap(self._kernNRCHelper, na_action='ignore')
       self._analyses['kernNotes'] = df
     return self._analyses['kernNotes'].copy()
 
@@ -705,13 +701,18 @@ class Score:
       _me = self._measures()
       me = _me.astype('string').applymap(lambda cell: '=' + cell + '-' if cell == '0' else '=' + cell, na_action='ignore')
       events = self.kernNotes()
+      isMI = isinstance(events.index, pd.MultiIndex)
       includeLyrics, includeDynamics = False, False
       if lyrics and not self.lyrics().empty:
         includeLyrics = True
         lyr = self.lyrics()
+        if isMI:
+          lyr.index = pd.MultiIndex.from_arrays((lyr.index, [0]*len(lyr.index)))
       if dynamics and not self.dynamics().empty:
         includeDynamics = True
         dyn = self.dynamics()
+        if isMI:
+          dyn.index = pd.MultiIndex.from_arrays((dyn.index, [0]*len(dyn.index)))
       _cols, firstTokens, partNumbers, staves, instruments, partNames, shortNames = [], [], [], [], [], [], []
       for i in range(len(events.columns), 0, -1):   # reverse column order because kern order is lowest staves on the left
         col = events.columns[i - 1]
@@ -752,6 +753,8 @@ class Score:
         partNames.extend([f'*{col}' for col in cdata.columns])
         shortNames.extend(['*'] * len(cdata.columns))
         events = pd.concat([events, cdata], axis=1)
+      if isMI:
+        events = events.droplevel(1)
       me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns

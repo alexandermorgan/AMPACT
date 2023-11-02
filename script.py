@@ -503,40 +503,38 @@ class Score:
         endBracket += ']'
 
     spanners = _note.getSpannerSites()
-    if len(spanners):
-      for spanner in spanners:
-        if 'Slur' in spanner.classes:
-          if spanner.isFirst(_note):
-            startBracket = '(' + startBracket
-          elif spanner.isLast(_note):
-            endBracket += ')'
+    for spanner in spanners:
+      if 'Slur' in spanner.classes:
+        if spanner.isFirst(_note):
+          startBracket = '(' + startBracket
+        elif spanner.isLast(_note):
+          endBracket += ')'
 
     beams = _note.beams.beamsList
-    if len(beams):
-      for beam in beams:
-        if beam.type == 'start':
-          beaming += 'L'
-        elif beam.type == 'stop':
-          beaming += 'J'
+    for beam in beams:
+      if beam.type == 'start':
+        beaming += 'L'
+      elif beam.type == 'stop':
+        beaming += 'J'
 
     dur = _duration2Kern[round(float(_note.quarterLength), 5)]
     _oct = _note.octave
     if _oct > 3:
-      step = _note.step.lower() * (_oct - 3)
+      letter = _note.step.lower() * (_oct - 3)
     else:
-      step = _note.step * (4 - _oct)
+      letter = _note.step * (4 - _oct)
     acc = _note.pitch.accidental
     acc = acc.modifier if acc is not None else ''
     longa = 'l' if _note.duration.type == 'longa' else ''
     grace = '' if _note.sortTuple()[4] else 'q'
-    return f'{startBracket}{dur}{step}{acc}{longa}{grace}{beaming}{endBracket}'
+    return f'{startBracket}{dur}{letter}{acc}{longa}{grace}{beaming}{endBracket}'
 
   def _kernChordHelper(self, _chord):
     '''\tParse a music21 chord object into a kern chord token.'''
     # TODO: figure out how durations are handled in kern chords. Might need to pass the chord's duration down to this func since m21 pitch objects don't have duration attributes
     pitches = []
     dur = _duration2Kern[round(float(_chord.quarterLength), 5)]
-    for _pitch in _chord.pitches:
+    for i, _pitch in enumerate(_chord.pitches):
       _oct = _pitch.octave
       if _oct > 3:
         letter = _pitch.step.lower() * (_oct - 3)
@@ -545,9 +543,27 @@ class Score:
       acc = _pitch.accidental
       acc = acc.modifier if acc is not None else ''
       longa = '' #'l' if _pitch.duration.type == 'longa' else ''
-      pitches.extend((dur, letter, acc, longa, ' '))
+      grace = '' if _chord.sortTuple()[4] else 'q'
+      if i == 0:  # beaming and slurs are only on the chord object, so just look for them on the chord for the first pitch
+        startBracket, endBracket, beaming = '', '', ''
+        spanners = _chord.getSpannerSites()
+        for spanner in spanners:
+          if 'Slur' in spanner.classes:
+            if spanner.isFirst(_chord):
+              startBracket = '(' + startBracket
+            elif spanner.isLast(_chord):
+              endBracket += ')'
+        beams = _chord.beams.beamsList
+        for beam in beams:
+          if beam.type == 'start':
+            beaming += 'L'
+          elif beam.type == 'stop':
+            beaming += 'J'
+        pitches.append(f'{startBracket}{dur}{letter}{acc}{longa}{grace}{beaming}{endBracket}')
+      else:
+        pitches.append(f'{dur}{letter}{acc}{longa}{grace}')
     if len(pitches):
-      return ''.join(pitches[:-1])
+      return ' '.join(pitches)
     else:
       return ''
 
@@ -565,8 +581,8 @@ class Score:
     not the same as creating a kern format of a score, but is an important step
     in that process.'''
     if 'kernNotes' not in self._analyses:
-      divisi = self._divisi(multi_index=True)
-      df = divisi.applymap(self._kernNRCHelper, na_action='ignore')
+      parts = self._parts(multi_index=True)
+      df = parts.applymap(self._kernNRCHelper, na_action='ignore')
       self._analyses['kernNotes'] = df
     return self._analyses['kernNotes'].copy()
 

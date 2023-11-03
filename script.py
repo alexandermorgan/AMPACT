@@ -581,8 +581,42 @@ class Score:
     not the same as creating a kern format of a score, but is an important step
     in that process.'''
     if 'kernNotes' not in self._analyses:
-      parts = self._parts(multi_index=True)
-      df = parts.applymap(self._kernNRCHelper, na_action='ignore')
+      # parts = self._parts(multi_index=True)
+      sers = []
+      divisiStarts = pd.DataFrame(columns=self.partNames)
+      divisiEnds = pd.DataFrame(columns=self.partNames)
+      for ii, flat_part in enumerate(self._semiFlatParts):
+        voces = []
+        partName = self.partNames[ii]
+        for jj, vox in enumerate(flat_part.voicesToParts()):
+          tieBreakers = []
+          ser = pd.Series(vox.flatten().getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[ii])
+          ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
+          nexts = ser.index.to_series().shift(-1)
+          for kk in range(-1, -1 - len(ser.index), -1):
+            # tieBreakers are the multiIndex values to handle zero-duration events like grace notes
+            if ser.index[kk] == nexts.iat[kk]:
+              tieBreakers.append(tieBreakers[-1] - 1)
+            else:
+              tieBreakers.append(0)
+          if jj > 0:  # create divisi records (*^ and *v) when looking at a non-first voice in part
+            dur = ser.apply(lambda nrc: nrc.quarterLength)
+            starts = -dur + dur.index
+            ends = dur + dur.index
+            for val in dur.index:
+              if val not in ends.values:
+                divisiStarts.at[val, partName] = '*^'
+            for val in ends:
+              if val not in dur:
+                divisiEnds.at[val, partName] = '*v'
+          tieBreakers.reverse()
+          ser.index = pd.MultiIndex.from_arrays((ser.index, tieBreakers))
+          ser.name = partName + f'_divisi_{jj}' if jj > 0 else partName
+          sers.append(ser)
+      df = pd.concat(sers, axis=1)
+      df = df.applymap(self._kernNRCHelper, na_action='ignore')
+      self._analyses['_divisiStarts'] = divisiStarts.fillna('*')
+      self._analyses['_divisiEnds'] = divisiEnds.fillna('*')
       self._analyses['kernNotes'] = df
     return self._analyses['kernNotes'].copy()
 
@@ -775,6 +809,8 @@ class Score:
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns
       ba.columns = events.columns
+      ds = self._analyses['_divisiStarts']
+      de = self._analyses['_divisiEnds']
       clefs = self._clefs()
       clefs = clefs.reindex(events.columns, axis=1).fillna('*')
       ts = '*M' + self._timeSignatures()
@@ -784,9 +820,27 @@ class Score:
       partTokens = pd.DataFrame([firstTokens, partNumbers, staves, instruments, partNames, shortNames, ['*-']*len(events.columns)],
                                 index=[-12, -11, -10, -9, -8, -7, int(self.score.highestTime + 1)])
       partTokens.columns = events.columns
-      body = pd.concat([partTokens, me, clefs, ks, ts, events, ba]).sort_index(kind='mergesort').fillna('.')
-      body = body.to_csv(sep='\t', header=False, index=False, quotechar='`')
-      result = ''.join([self._kernHeader(), '\n', body, self._kernFooter()])
+      body = pd.concat([partTokens, de, me, ds, clefs, ks, ts, events, ba]).sort_index(kind='mergesort')
+      body = body.fillna('.')
+      divRows, divCols = np.where(body == '*^')
+      for ii, rowIndex in enumerate(divRows):
+        colIndex = divCols[ii]
+        colName = body.columns[colIndex]
+        targetCols = [jj for jj, col in enumerate(body.columns) if col.startswith(colName) and col != colName]
+        if ii == 0:  # delete everying in target cols up to first divisi
+          body.iloc[:rowIndex + 1, targetCols] = np.nan
+        elif ii + 1 < len(divRows):  # delete everything from the last divisi consolidation to this new divisi
+          prevConsolidation = np.where(body.iloc[:rowIndex, colIndex] == '*v')[-1]
+          body.iloc[prevConsolidation + 1:rowIndex + 1, targetCols] = np.nan
+          body.iloc[prevConsolidation, targetCols] = '*v'
+        if ii + 1 == len(divRows):  # delete everything in target cols after final consolidation
+          finalConsolidation = np.where(body.iloc[rowIndex:, colIndex] == '*v')[0][0] + rowIndex
+          body.iloc[finalConsolidation + 1:, targetCols] = np.nan
+          body.iloc[finalConsolidation, targetCols] = '*v'
+      result = [self._kernHeader()]
+      result.extend(['\t'.join(row[~pd.isnull(row)]) for row in body.values])
+      result.extend((self._kernFooter(),))
+      result = '\n'.join(result)
       self._analyses[key] = result
     if not path_name:
       return self._analyses[key]

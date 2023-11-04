@@ -656,7 +656,8 @@ class Score:
   def pianoRoll(self):
     '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
     if 'pianoRoll' not in self._analyses:
-      mp = self.midiPitches().ffill()
+      mp = self.midiPitches()
+      mp = mp[~mp.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
       pianoRoll = pd.DataFrame(index=range(128), columns=mp.index.values)
       for offset in mp.index:
         for pitch in mp.loc[offset]:

@@ -101,30 +101,6 @@ class Score:
       part.makeMeasures(inPlace=True)
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
-    
-    self._partDivisiCounts = {}
-    self.parts = []
-    for i, flat_part in enumerate(self._semiFlatParts):
-      elements = flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])
-      events, offsets = [], []
-      for nrc in elements:
-        if nrc.isChord:
-          events.append(nrc.notes)
-          # TODO: should this be the same as the earlier nrc.offset command which uses astype(float) on the series?
-          offsets.append(round(float(nrc.offset), 5))
-        else:
-          events.append((nrc,))
-          offsets.append(round(float(nrc.offset), 5))
-      df = pd.DataFrame(events, index=offsets)
-      if len(df.columns) > 1:
-        divisi = [':'.join((self.partNames[i], str(j))) for j in range(1, len(df.columns) + 1)]
-      else:
-        divisi = [self.partNames[i]]
-      df.columns = divisi
-      self._partDivisiCounts[self.partNames[i]] = len(divisi)
-      # for now remove multiple events at the same offset in a given part
-      df = df[~df.index.duplicated(keep='last')]
-      self.parts.append(df)
 
   def _partList(self):
     '''\tReturn a list of series of the note, rest, and chord objects in a each part.'''
@@ -380,15 +356,10 @@ class Score:
     '''\tReturn df of the measure starting points.'''
     key = ('_measure', divisi)
     if key not in self._analyses:
-      partMeasures = []
-      for i, part in enumerate(self._semiFlatParts):
-        ser = pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
-        if divisi:
-          partMeasures.extend([ser] * self._partDivisiCounts[self.partNames[i]])
-        else:
-          partMeasures.append(ser)
+      partMeasures = [pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
+                      for i, part in enumerate(self._semiFlatParts)]
       df = pd.concat(partMeasures, axis=1)
-      df.columns = self._divisi().columns if divisi else self.partNames
+      df.columns = self.partNames
       self._analyses[key] = df
     return self._analyses[key]
 
@@ -397,12 +368,10 @@ class Score:
     example, can help detect section divisions, and the final barline can help
     process the `highestTime` similar to music21.'''
     if "_barlines" not in self._analyses:
-      partBarlines = []
-      for i, part in enumerate(self._semiFlatParts):
-        ser = pd.Series({b.offset: b.type for b in part.getElementsByClass(['Barline'])})
-        partBarlines.extend([ser] * self._partDivisiCounts[self.partNames[i]])
+      partBarlines = [pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Barline'])})
+                      for i, part in enumerate(self._semiFlatParts)]
       df = pd.concat(partBarlines, axis=1)
-      df.columns = self._divisi().columns
+      df.columns = self.partNames
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 

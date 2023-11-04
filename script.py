@@ -98,6 +98,7 @@ class Score:
 
     self.partNames = []
     for i, part in enumerate(self._semiFlatParts):
+      part.makeMeasures(inPlace=True)
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
     

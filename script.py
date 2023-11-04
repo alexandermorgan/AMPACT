@@ -94,11 +94,11 @@ class Score:
     self.score = imported_scores[self.path]
     self.metadata = {'Title': self.score.metadata.title, 'Composer': self.score.metadata.composer}
     self._partStreams = self.score.getElementsByClass(m21.stream.Part)
-    self._semiFlatParts = [part.flatten() for part in self._partStreams]
-
+    self._semiFlatParts = []
     self.partNames = []
-    for i, part in enumerate(self._semiFlatParts):
+    for i, part in enumerate(self._partStreams):
       part.makeMeasures(inPlace=True)
+      self._semiFlatParts.append([event for event in part.flatten().getElementsByClass(['Note', 'Rest', 'Chord'])])
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
 
@@ -108,7 +108,7 @@ class Score:
       parts = []
       isUnique = True
       for i, flat_part in enumerate(self._semiFlatParts):
-        ser = pd.Series(flat_part.getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[i])
+        ser = pd.Series(flat_part, name=self.partNames[i])
         ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
         # ser = ser[~ser.index.duplicated(keep='last')]
         if not ser.index.is_unique:

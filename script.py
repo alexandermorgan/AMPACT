@@ -94,7 +94,7 @@ class Score:
     self.score = imported_scores[self.path]
     self.metadata = {'Title': self.score.metadata.title, 'Composer': self.score.metadata.composer}
     self._partStreams = self.score.getElementsByClass(m21.stream.Part)
-    self._semiFlatParts = [part.semiFlat for part in self._partStreams]
+    self._semiFlatParts = [part.flatten() for part in self._partStreams]
 
     self.partNames = []
     for i, part in enumerate(self._semiFlatParts):

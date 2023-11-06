@@ -98,7 +98,7 @@ class Score:
     self.partNames = []
     for i, part in enumerate(self._partStreams):
       part.makeMeasures(inPlace=True)
-      self._semiFlatParts.append([event for event in part.flatten().getElementsByClass(['Note', 'Rest', 'Chord'])])
+      self._semiFlatParts.append(part.flatten())
       name = part.partName if (part.partName and part.partName not in self.partNames) else 'Part_' + str(i + 1)
       self.partNames.append(name)
 
@@ -108,7 +108,7 @@ class Score:
       parts = []
       isUnique = True
       for i, flat_part in enumerate(self._semiFlatParts):
-        ser = pd.Series(flat_part, name=self.partNames[i])
+        ser = pd.Series([nrc for nrc in flat_part.getElementsByClass(['Note', 'Rest', 'Chord'])], name=self.partNames[i])
         ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
         # ser = ser[~ser.index.duplicated(keep='last')]
         if not ser.index.is_unique:
@@ -200,6 +200,8 @@ class Score:
           self._analyses[(spine.spineType, 0)] = res
           if spine.spineType == 'harm' and len(keyVals):
             keyName = 'harmKeys'
+            # key records are usually not found at a kern line with notes so take the next valid one
+            keyPositions = [df1.iat[np.where(df1.Priority >= kp)[0][0], 0] for kp in keyPositions]
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
             df3 = joined.iloc[:, 2:].copy()
@@ -356,7 +358,7 @@ class Score:
     '''\tReturn df of the measure starting points.'''
     key = ('_measure', divisi)
     if key not in self._analyses:
-      partMeasures = [pd.Series({m.offset: m.measureNumber for m in part.getElementsByClass(['Measure'])}, dtype='Int16')
+      partMeasures = [pd.Series({m.offset: m.measureNumber for m in part.makeMeasures()}, dtype='Int16')
                       for i, part in enumerate(self._semiFlatParts)]
       df = pd.concat(partMeasures, axis=1)
       df.columns = self.partNames
@@ -375,13 +377,14 @@ class Score:
       self._analyses["_barlines"] = df
     return self._analyses["_barlines"]
 
-  def _keySignatures(self):
+  def _keySignatures(self, kern=True):
     if '_keySignatures' not in self._analyses:
       kSigs = []
       for i, part in enumerate(self._semiFlatParts):
-        kSigs.append(pd.Series({ms.offset: ''.join([_note.name for _note in ms.keySignature.alteredPitches]).lower()
-                                for ms in part.getElementsByClass(['Measure']) if ms.keySignature is not None}, name=self.partNames[i]))
+        kSigs.append(pd.Series({ky.offset: ky for ky in part.getElementsByClass(['Key'])}, name=self.partNames[i]))          
       df = pd.concat(kSigs, axis=1).sort_index(kind='mergesort')
+      if kern:
+        df = '*k[' + df.applymap(lambda ky: ''.join([_note.name for _note in ky.alteredPitches]).lower(), na_action='ignore') + ']'
       self._analyses['_keySignatures'] = df
     return self._analyses['_keySignatures']
 

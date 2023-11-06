@@ -786,12 +786,14 @@ class Score:
       me.columns = events.columns
       ba.columns = events.columns
       ds = self._analyses['_divisiStarts']
+      ds = ds.reindex(events.columns, axis=1).fillna('*')
       de = self._analyses['_divisiEnds']
+      de = de.reindex(events.columns, axis=1).fillna('*')
       clefs = self._clefs()
       clefs = clefs.reindex(events.columns, axis=1).fillna('*')
       ts = '*M' + self._timeSignatures()
       ts = ts.reindex(events.columns, axis=1).fillna('*')
-      ks = '*k[' + self._keySignatures() + ']'
+      ks = self._keySignatures()
       ks = ks.reindex(events.columns, axis=1).fillna('*')
       partTokens = pd.DataFrame([firstTokens, partNumbers, staves, instruments, partNames, shortNames, ['*-']*len(events.columns)],
                                 index=[-12, -11, -10, -9, -8, -7, int(self.score.highestTime + 1)])

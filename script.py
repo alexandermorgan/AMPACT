@@ -771,7 +771,6 @@ class Score:
       ba.loc[self.score.highestTime, :] = '=='
       if data:
         cdata = self.fromJSON(data)
-        cdata.index = cdata.index.second
         firstTokens.extend(['**data'] * len(cdata.columns))
         partNumbers.extend(['*'] * len(cdata.columns))
         staves.extend(['*'] * len(cdata.columns))

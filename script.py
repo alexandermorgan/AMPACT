@@ -608,7 +608,9 @@ class Score:
     if key not in self._analyses:
       nmats = {}
       dur = self.durations()
+      dur = dur[~dur.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
       mp = self.midiPitches()
+      mp = mp[~mp.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
       ms = self._measures()
       toSeconds = 60/bpm
       for i, partName in enumerate(self.partNames):

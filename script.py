@@ -769,6 +769,8 @@ class Score:
       ba = self._barlines()
       ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})
       ba.loc[self.score.highestTime, :] = '=='
+      if isMI:
+        events = events.droplevel(1)
       if data:
         cdata = self.fromJSON(data)
         firstTokens.extend(['**data'] * len(cdata.columns))
@@ -778,8 +780,6 @@ class Score:
         partNames.extend([f'*{col}' for col in cdata.columns])
         shortNames.extend(['*'] * len(cdata.columns))
         events = pd.concat([events, cdata], axis=1)
-      if isMI:
-        events = events.droplevel(1)
       me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
       me.columns = events.columns

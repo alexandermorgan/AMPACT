@@ -769,7 +769,7 @@ class Score:
       ba = self._barlines()
       ba = ba[ba != 'regular'].dropna().replace({'double': '||', 'final': '=='})
       ba.loc[self.score.highestTime, :] = '=='
-      if isMI:
+      if isinstance(events.index, pd.MultiIndex):
         events = events.droplevel(1)
       if data:
         cdata = self.fromJSON(data)
@@ -779,6 +779,7 @@ class Score:
         instruments.extend(['*'] * len(cdata.columns))
         partNames.extend([f'*{col}' for col in cdata.columns])
         shortNames.extend(['*'] * len(cdata.columns))
+        events = events[~events.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
         events = pd.concat([events, cdata], axis=1)
       me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)
@@ -815,7 +816,7 @@ class Score:
           body.iloc[finalConsolidation + 1:, targetCols] = np.nan
           body.iloc[finalConsolidation, targetCols] = '*v'
       result = [self._kernHeader()]
-      result.extend(['\t'.join(row[~pd.isnull(row)]) for row in body.values])
+      result.extend(body.apply(lambda row: '\t'.join(row.dropna().astype(str)), axis=1))
       result.extend((self._kernFooter(),))
       result = '\n'.join(result)
       self._analyses[key] = result

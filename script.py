@@ -207,7 +207,7 @@ class Score:
             df3 = joined.iloc[:, 2:].copy()
             df3.index = joined['Offset']
             df3.index.name = ''
-            self._analyses[(keyName, 0)] = df3
+            self._analyses[(keyName, 0)] = df3.fillna('.')
 
     if ('function', 0) not in self._analyses:
       self._analyses[('function', 0)] = pd.DataFrame()
@@ -566,14 +566,15 @@ class Score:
           ser = pd.Series(vox.flatten().getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[ii])
           ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
           nexts = ser.index.to_series().shift(-1)
-          for kk in range(-1, -1 - len(ser.index), -1):
-            # tieBreakers are the multiIndex values to handle zero-duration events like grace notes
+          for kk in range(-1, -1 - len(ser.index), -1):  # reversed to make the *last* event at each offset have a tieBreaker value of 0
+            # tieBreakers are the multiIndex values to handle zero-duration grace notes and non-explicit divisi
             if ser.index[kk] == nexts.iat[kk]:
               tieBreakers.append(tieBreakers[-1] - 1)
             else:
               tieBreakers.append(0)
+          tieBreakers.reverse()
+          dur = ser.apply(lambda nrc: nrc.quarterLength)
           if jj > 0:  # create divisi records (*^ and *v) when looking at a non-first voice in part
-            dur = ser.apply(lambda nrc: nrc.quarterLength)
             starts = -dur + dur.index
             ends = dur + dur.index
             for val in dur.index:
@@ -582,7 +583,16 @@ class Score:
             for val in ends:
               if val not in dur:
                 divisiEnds.at[val, partName] = '*v'
-          tieBreakers.reverse()
+          # TODO: pick up here to split things into voices even when they're not declared as separate voices
+          # tb = pd.Series(tieBreakers, index=ser.index)
+          # d1 = pd.concat([ser, tb, dur], axis=1)
+          # mask = (d1.dur > 0) & (d1.tb < 0)
+          # d2 = d1[mask]
+          # d3 = d1[~mask]
+          # d4 = d2[d2.tb < 0]
+          # d5 = d1.loc[d4.index] -> if there are any grace notes with tb < -1, also keep them in the first voice and keep searching for more in a loop
+          # ***OR*** use flat_part.getOverlaps() and iterate through each list in that dictionary and maybe stream.insertAndShift(element)
+          # pdb.set_trace()
           ser.index = pd.MultiIndex.from_arrays((ser.index, tieBreakers))
           ser.name = partName + f'_divisi_{jj}' if jj > 0 else partName
           sers.append(ser)
@@ -628,8 +638,11 @@ class Score:
       self._analyses[key] = nmats
     return self._analyses[key]
 
-  def pianoRoll(self):
-    '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
+  def pianoRoll(self, keys=False, functions=False, harmonies=False):
+    '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches. If any of the
+    `keys`, `functions`, or `harmonies` parameters are set to True (all default to False), then
+    the corresponding row or rows will be added to the bottom of the pianoRoll. Similar options
+    are available for the mask.'''
     if 'pianoRoll' not in self._analyses:
       mp = self.midiPitches()
       mp = mp[~mp.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
@@ -640,7 +653,17 @@ class Score:
             pianoRoll.at[pitch, offset] = 1
       pianoRoll.fillna(0, inplace=True)
       self._analyses['pianoRoll'] = pianoRoll
-    return self._analyses['pianoRoll']
+    pr = self._analyses['pianoRoll']
+    toAdd = [pr]
+    if keys:
+      toAdd.append(self._analyses[('harmKeys', 0)].T)
+    if functions:
+      toAdd.append(self._analyses[('function', 0)].T)
+    if harmonies:
+      toAdd.append(self._analyses[('harm', 0)].T)
+    if len(toAdd) > 1:
+      pr = pd.concat(toAdd)
+    return pr
 
   def sampled(self, bpm=60, obs=20):
     '''\tSample the score according to bpm, and the desired observations per second, `obs`.'''
@@ -780,6 +803,7 @@ class Score:
         partNames.extend([f'*{col}' for col in cdata.columns])
         shortNames.extend(['*'] * len(cdata.columns))
         events = events[~events.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
+        pdb.set_trace()
         events = pd.concat([events, cdata], axis=1)
       me = pd.concat([me.iloc[:, 0]] * len(events.columns), axis=1)
       ba = pd.concat([ba.iloc[:, 0]] * len(events.columns), axis=1)

@@ -656,11 +656,11 @@ class Score:
     pr = self._analyses['pianoRoll']
     toAdd = [pr]
     if keys:
-      toAdd.append(self._analyses[('harmKeys', 0)].T)
+      toAdd.append(self.harmKeys().T)
     if functions:
-      toAdd.append(self._analyses[('function', 0)].T)
+      toAdd.append(self.functions().T)
     if harmonies:
-      toAdd.append(self._analyses[('harm', 0)].T)
+      toAdd.append(self.harmonies().T)
     if len(toAdd) > 1:
       pr = pd.concat(toAdd)
     return pr
@@ -678,7 +678,8 @@ class Score:
     return self._analyses[key]
 
   def mask(self, winms=100, sample_rate=2000, num_harmonics=1, width=0,
-            bpm=60, aFreq=440, base_note=0, tuning_factor=1, obs=20):
+          bpm=60, aFreq=440, base_note=0, tuning_factor=1, obs=20,
+          keys=False, functions=False, harmonies=False):
     '''\tConstruct a mask from the sampled piano roll using width and harmonics.'''
     key = ('mask', winms, sample_rate, num_harmonics, width, bpm, aFreq, base_note, tuning_factor)
     if key not in self._analyses:
@@ -702,7 +703,25 @@ class Score:
               mcol.loc[minbin : maxbin] = 1
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self._analyses[key] = mask
-    return self._analyses[key]
+    else:
+      mask = self._analyses[key]
+    toAdd = [mask]
+    if keys:
+      ky = self.harmKeys().T
+      ky = ky.reindex(columns=mask.columns).fillna('.')
+      toAdd.append(ky)
+    if functions:
+      funcs = self.functions().T
+      funcs = funcs.reindex(columns=mask.columns).fillna('.')
+      toAdd.append(funcs)
+    if harmonies:
+      harm = self.harmonies().T
+      harm = harm.reindex(columns=mask.columns).fillna('.')
+      toAdd.append(harm)
+    if len(toAdd) > 1:
+      return pd.concat(toAdd)
+    else:
+      return mask
 
   def fromJSON(self, json_path):
     '''\tReturn a pandas dataframe of the JSON file. The outermost keys will get

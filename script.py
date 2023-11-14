@@ -197,7 +197,7 @@ class Score:
           res = joined.iloc[:, 2:].copy()  # get all the columns from the third to the end. Usually just 1 col except for cdata
           res.index = joined['Offset']
           res.index.name = ''
-          self._analyses[(spine.spineType, 0)] = res
+          self._analyses[spine.spineType] = res
           if spine.spineType == 'harm' and len(keyVals):
             keyName = 'harmKeys'
             # key records are usually not found at a kern line with notes so take the next valid one
@@ -207,16 +207,16 @@ class Score:
             df3 = joined.iloc[:, 2:].copy()
             df3.index = joined['Offset']
             df3.index.name = ''
-            self._analyses[(keyName, 0)] = df3.fillna('.')
+            self._analyses[keyName] = df3.fillna('.')
 
-    if ('function', 0) not in self._analyses:
-      self._analyses[('function', 0)] = pd.DataFrame()
-    if ('harm', 0) not in self._analyses:
-      self._analyses[('harm', 0)] = pd.DataFrame()
-    if ('harmKeys', 0) not in self._analyses:
-      self._analyses[('harmKeys', 0)] = pd.DataFrame()
-    if ('cdata', 0) not in self._analyses:
-      self._analyses[('cdata', 0)] = pd.DataFrame()
+    if 'function' not in self._analyses:
+      self._analyses['function'] = pd.DataFrame()
+    if 'harm' not in self._analyses:
+      self._analyses['harm'] = pd.DataFrame()
+    if 'harmKeys' not in self._analyses:
+      self._analyses['harmKeys'] = pd.DataFrame()
+    if 'cdata' not in self._analyses:
+      self._analyses['cdata'] = pd.DataFrame()
 
   def lyrics(self):
     if 'lyrics' not in self._analyses:
@@ -281,68 +281,165 @@ class Score:
       self._analyses['_priority'] = priority
     return self._analyses['_priority']
 
-  def _reindex_like_sampled(self, df, bpm=60, obs=20):
-    '''\tGiven a pandas.DataFrame, reindex it like the columns of the piano roll sampled
-    at `obs` observations a second at the given bpm assuming the quarter note is the beat.
-    If an index value in the passed dataframe is not in the columns of the sampled piano
-    roll, it will be rewritten to the nearest preceding index val and if this creates
-    duplicate index values, only the last one will be kept. Returns a forward-filled 
-    copy of the passed dataframe. The original dataframe is not changed.'''
-    _df = df.copy()
-    timepoints = self.sampled(bpm, obs).iloc[0, :]
-    ndx = [val if val in timepoints.index else timepoints.index.asof(val) for val in _df.index]
-    _df.index = ndx
-    _df = _df[~_df.index.duplicated(keep='last')]
-    _df = _df.reindex(index=timepoints.index).ffill()
-    return _df
+  def _snapTo(self, df, snap_to=None, filler=None):
+    '''\tTakes a `harmonies`, `harmKeys`, or `functions` dataframe as `df` and the
+    `snap_to` and `filler` parameters as described in the former three's doc strings.
+    The passed df is returned in the shape of the snap_to df's columns, and any filling
+    operations are applied.'''
+    if snap_to is not None:
+      df = df.T.reindex(columns=snap_to.columns)
 
-  def harmKeys(self, bpm=0):
-    '''\tGet the keys the **harm spine is done in as a pandas dataframe if this piece
-    is a kern file and has a **harm spine. Otherwise return an empty dataframe. The
-    index of the dataframe will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0 (default), it will return the key observations from
-    the **harm spine at their original offsets.'''
-    key = ('harmKeys', bpm)
-    if key not in self._analyses:
-      harmKeys = self._analyses[('harmKeys', 0)]
-      self._analyses[key] = self._reindex_like_sampled(harmKeys, bpm)
-    return self._analyses[key]
+    if filler is not None:
+      if filler != '.':
+        df.replace('.', np.nan, inplace=True)
+      if isinstance(filler, str):
+        if filler.lower() in ('forward', 'fwd', 'ff', 'ffill'):
+          df = df.ffill(axis=1)
+        else:
+          if filler.lower() == 'nan':
+            filler = np.nan
+          df.fillna(filler, inplace=True)
+    return df
 
-  def harmonies(self, bpm=0):
+  def harmKeys(self, snap_to=None, filler=None):
+    '''\tGet the key analysis from the **harm spine as a pandas dataframe if this
+    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. If you
+    want to align these results so that they match the columnar (time) axis of the pianoRoll
+    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
+    parameter. This will swap the axes of the `harmKeys` results and make the timepoints in
+    the columnar axis match those of the passed pianoRoll or mask.
+
+    The `mask` will almost always have more observations than the `harmKeys`
+    results, so you may want to fill in these new empty slots somehow. The kern format uses
+    '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
+    empty slots with this as well. If you choose some other value, say `filler='_'`, then in
+    addition to filling in the empty slots with underscores, this will also replace the kern
+    '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
+    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
+    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
+    observation until a new one is found.
+
+    Usage assuming you have a Score object named `piece` in memory:
+    # get the harmKeys as a dataframe
+    harmKeys = piece.harmKeys()
+
+    # get the harmKeys and forward fill the results
+    harmKeys = piece.harmKeys(filler='forward')
+
+    # get the harmKeys in the shape of the pianoRoll columns
+    pianoRoll = piece.pianoRoll()
+    harmKeys = piece.harmKeys(snap_to=pianoRoll)
+
+    # get the harmKeys in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    mask = piece.mask()
+    harmKeys = piece.harmKeys(snap_to=mask, filler='nan')
+    '''
+    return self._snapTo(self._analyses['harmKeys'].copy(), snap_to, filler)
+
+  def harmonies(self, snap_to=None, filler=None):
     '''\tGet the harmonic analysis from the **harm spine as a pandas dataframe if this
-    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. The
-    index of the dataframe will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0 (default), it will return the **harm spine
-    observations at their original offsets.'''
-    key = ('harm', bpm)
-    if key not in self._analyses:
-      harm = self._analyses[('harm', 0)]
-      self._analyses[key] = self._reindex_like_sampled(harm, bpm)
-    return self._analyses[key]
+    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. If you
+    want to align these results so that they match the columnar (time) axis of the pianoRoll
+    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
+    parameter. This will swap the axes of the `harmonies` results and make the timepoints in
+    the columnar axis match those of the passed pianoRoll or mask.
 
-  def functions(self, bpm=0):
+    The `mask` will almost always have more observations than the `harmonies`
+    results, so you may want to fill in these new empty slots somehow. The kern format uses
+    '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
+    empty slots with this as well. If you choose some other value, say `filler='_'`, then in
+    addition to filling in the empty slots with underscores, this will also replace the kern
+    '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
+    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
+    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
+    observation until a new one is found.
+
+    Usage assuming you have a Score object named `piece` in memory:
+    # get the harmonies as a dataframe
+    harmonies = piece.harmonies()
+
+    # get the harmonies and forward fill the results
+    harmonies = piece.harmonies(filler='forward')
+
+    # get the harmonies in the shape of the pianoRoll columns
+    pianoRoll = piece.pianoRoll()
+    harmonies = piece.harmonies(snap_to=pianoRoll)
+
+    # get the harmonies in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    mask = piece.mask()
+    harmonies = piece.harmonies(snap_to=mask, filler='nan')
+    '''
+    return self._snapTo(self._analyses['harm'].copy(), snap_to, filler)
+
+  def functions(self, snap_to=None, filler=None):
     '''\tGet the functional analysis from the **function spine as a pandas dataframe if this
-    piece is a kern file and has a **function spine. Otherwise return an empty dataframe. The
-    index of the dataframe will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0 (default), it will return the **function spine
-    observations at their original offsets.'''
-    key = ('function', bpm)
-    if key not in self._analyses:
-      functions = self._analyses[('function', 0)]
-      self._analyses[key] = self._reindex_like_sampled(functions, bpm)
-    return self._analyses[key]
+    piece is a kern file and has a **function spine. Otherwise return an empty dataframe. If you
+    want to align these results so that they match the columnar (time) axis of the pianoRoll
+    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
+    parameter. This will swap the axes of the `functions` results and make the timepoints in
+    the columnar axis match those of the passed pianoRoll or mask.
 
-  def cdata(self, bpm=0):
-    '''\tGet the cdata analysis from the **cdata spine as a pandas dataframe if this
-    piece is a kern file and has a **cdata spine. Otherwise return an empty dataframe. The
-    index of the dataframe will match the columns of the sampled piano roll created with the
-    same bpm as that passed. If bpm is set to 0 (default), it will return the **cdata spine
-    observations at their original offsets.'''
-    key = ('cdata', bpm)
-    if key not in self._analyses:
-      cdata = self._analyses[('cdata', 0)]
-      self._analyses[key] = self._reindex_like_sampled(cdata, bpm)
-    return self._analyses[key]
+    The `mask` will almost always have more observations than the `functions`
+    results, so you may want to fill in these new empty slots somehow. The kern format uses
+    '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
+    empty slots with this as well. If you choose some other value, say `filler='_'`, then in
+    addition to filling in the empty slots with underscores, this will also replace the kern
+    '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
+    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
+    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
+    observation until a new one is found.
+
+    Usage assuming you have a Score object named `piece` in memory:
+    # get the functions as a dataframe
+    functions = piece.functions()
+
+    # get the functions and forward fill the results
+    functions = piece.functions(filler='forward')
+
+    # get the functions in the shape of the pianoRoll columns
+    pianoRoll = piece.pianoRoll()
+    functions = piece.functions(snap_to=pianoRoll)
+
+    # get the functions in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    mask = piece.mask()
+    functions = piece.functions(snap_to=mask, filler='nan')
+    '''
+    return self._snapTo(self._analyses['function'].copy(), snap_to, filler)
+
+  def cdata(self, snap_to=None, filler=None):
+    '''\tGet the cdata records from the **cdata spine as a pandas dataframe if this
+    piece is a kern file and has a **cdata spine. Otherwise return an empty dataframe. If you
+    want to align these results so that they match the columnar (time) axis of the pianoRoll
+    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
+    parameter. This will swap the axes of the `cdata` results and make the timepoints in
+    the columnar axis match those of the passed pianoRoll or mask.
+
+    The `mask` will almost always have more observations than the `cdata`
+    results, so you may want to fill in these new empty slots somehow. The kern format uses
+    '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
+    empty slots with this as well. If you choose some other value, say `filler='_'`, then in
+    addition to filling in the empty slots with underscores, this will also replace the kern
+    '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
+    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
+    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
+    observation until a new one is found.
+
+    Usage assuming you have a Score object named `piece` in memory:
+    # get the cdata as a dataframe
+    cdata = piece.cdata()
+
+    # get the cdata and forward fill the results
+    cdata = piece.cdata(filler='forward')
+
+    # get the cdata in the shape of the pianoRoll columns
+    pianoRoll = piece.pianoRoll()
+    cdata = piece.cdata(snap_to=pianoRoll)
+
+    # get the cdata in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    mask = piece.mask()
+    cdata = piece.cdata(snap_to=mask, filler='nan')
+    '''
+    return self._snapTo(self._analyses['cdata'].copy(), snap_to, filler)
 
   def _remove_tied(self, noteOrRest):
     if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
@@ -504,7 +601,6 @@ class Score:
 
   def _kernChordHelper(self, _chord):
     '''\tParse a music21 chord object into a kern chord token.'''
-    # TODO: figure out how durations are handled in kern chords. Might need to pass the chord's duration down to this func since m21 pitch objects don't have duration attributes
     pitches = []
     dur = _duration2Kern[round(float(_chord.quarterLength), 5)]
     for i, _pitch in enumerate(_chord.pitches):
@@ -562,6 +658,7 @@ class Score:
         voces = []
         partName = self.partNames[ii]
         for jj, vox in enumerate(flat_part.voicesToParts()):
+          flat = vox.flatten()
           tieBreakers = []
           ser = pd.Series(vox.flatten().getElementsByClass(['Note', 'Rest', 'Chord']), name=self.partNames[ii])
           ser.index = ser.apply(lambda nrc: nrc.offset).astype(float).round(5)
@@ -595,6 +692,7 @@ class Score:
           # pdb.set_trace()
           ser.index = pd.MultiIndex.from_arrays((ser.index, tieBreakers))
           ser.name = partName + f'_divisi_{jj}' if jj > 0 else partName
+          pdb.set_trace()
           sers.append(ser)
       df = pd.concat(sers, axis=1)
       df = df.applymap(self._kernNRCHelper, na_action='ignore')

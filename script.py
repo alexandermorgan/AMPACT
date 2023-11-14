@@ -692,7 +692,7 @@ class Score:
           # pdb.set_trace()
           ser.index = pd.MultiIndex.from_arrays((ser.index, tieBreakers))
           ser.name = partName + f'_divisi_{jj}' if jj > 0 else partName
-          pdb.set_trace()
+          # pdb.set_trace()
           sers.append(ser)
       df = pd.concat(sers, axis=1)
       df = df.applymap(self._kernNRCHelper, na_action='ignore')

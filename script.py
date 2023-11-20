@@ -8,8 +8,10 @@ import json
 import requests
 import os
 import tempfile
+import re
 m21.environment.set('autoDownload', 'allow')
 
+function_pattern = re.compile('[^TPD]')
 imported_scores = {}
 _duration2Kern = {  # keys get rounded to 5 decimal places
   56: '000..',
@@ -178,13 +180,20 @@ class Score:
               # there usually won't be any m21 objects at the same position as the key events,
               # so use the position from the next item in eventList if there is a next item.
               if spine.spineType == 'harm' and i + 1 < len(spine.eventList):
-                keyVals.append(contents)
+                keyVals.append(contents[1:-1])     # [1:-1] to remove the * and : characters
                 keyPositions.append(spine.eventList[i+1].position)
               continue
-            elif not start or '!' in contents or '=' in  contents or '*-' == contents:
+            elif not start or '!' in contents or '=' in  contents or '*' in contents:
               continue
             else:
-              vals.append(contents)
+              if spine.spineType == 'function':
+                func = function_pattern.sub('', contents)
+                if len(func):
+                  vals.append(func)
+                else:
+                  continue
+              else:
+                vals.append(contents)
               valPositions.append(event.position)
 
           df1 = self._priority()
@@ -194,7 +203,10 @@ class Score:
           else:
             df2 = pd.DataFrame({name: vals}, index=valPositions)
           joined = df1.join(df2, on='Priority')
-          res = joined.iloc[:, 2:].copy()  # get all the columns from the third to the end. Usually just 1 col except for cdata
+          if name != 'Cdata':   # get all the columns from the third to the end. Usually just 1 col except for cdata
+            res = joined.iloc[:, 2].copy()
+          else:
+            res = joined.iloc[:, 2:].copy()
           res.index = joined['Offset']
           res.index.name = ''
           self._analyses[spine.spineType] = res
@@ -204,17 +216,17 @@ class Score:
             keyPositions = [df1.iat[np.where(df1.Priority >= kp)[0][0], 0] for kp in keyPositions]
             df3 = pd.DataFrame({keyName: keyVals}, index=keyPositions)
             joined = df1.join(df3, on='Priority')
-            df3 = joined.iloc[:, 2:].copy()
-            df3.index = joined['Offset']
-            df3.index.name = ''
-            self._analyses[keyName] = df3.fillna('.')
+            ser = joined.iloc[:, 2].copy()
+            ser.index = joined['Offset']
+            ser.index.name = ''
+            self._analyses[keyName] = ser
 
     if 'function' not in self._analyses:
-      self._analyses['function'] = pd.DataFrame()
+      self._analyses['function'] = pd.Series()
     if 'harm' not in self._analyses:
-      self._analyses['harm'] = pd.DataFrame()
+      self._analyses['harm'] = pd.Series()
     if 'harmKeys' not in self._analyses:
-      self._analyses['harmKeys'] = pd.DataFrame()
+      self._analyses['harmKeys'] = pd.Series()
     if 'cdata' not in self._analyses:
       self._analyses['cdata'] = pd.DataFrame()
 
@@ -281,165 +293,152 @@ class Score:
       self._analyses['_priority'] = priority
     return self._analyses['_priority']
 
-  def _snapTo(self, df, snap_to=None, filler=None):
-    '''\tTakes a `harmonies`, `harmKeys`, or `functions` dataframe as `df` and the
+  def _snapTo(self, data, snap_to=None, filler='forward', output='array'):
+    '''\tTakes a `harmonies`, `harmKeys`, `functions`, or `cdata` as `data` and the
     `snap_to` and `filler` parameters as described in the former three's doc strings.
-    The passed df is returned in the shape of the snap_to df's columns, and any filling
-    operations are applied.'''
+    The passed data is returned in the shape of the snap_to dataframe's columns, and any
+    filling operations are applied. The output will be in the form of a 1D numpy array
+    unless `output` is changed, in which case a series will be returned for harmonies,
+    harmKeys, and functions data, and a dataframe for cdata data.'''
     if snap_to is not None:
-      df = df.T.reindex(columns=snap_to.columns)
+      data = data.reindex(snap_to.columns)
+    if filler != '.':
+      data.replace('.', np.nan, inplace=True)
+    if isinstance(filler, str):
+      if filler.lower() == 'forward':
+        data.ffill(inplace=True)
+      else:
+        if filler.lower() == 'nan':
+          filler = np.nan
+        data.fillna(filler, inplace=True)
+    if output == 'array':
+      return data.values
+    else:
+      return data
 
-    if filler is not None:
-      if filler != '.':
-        df.replace('.', np.nan, inplace=True)
-      if isinstance(filler, str):
-        if filler.lower() in ('forward', 'fwd', 'ff', 'ffill'):
-          df = df.ffill(axis=1)
-        else:
-          if filler.lower() == 'nan':
-            filler = np.nan
-          df.fillna(filler, inplace=True)
-    return df
+  def harmKeys(self, snap_to=None, filler='forward', output='array'):
+    '''\tGet the key analysis from the **harm spine if this piece is a kern file and has a
+    **harm spine. The default is for the results to be returned as a 1-d array, but you can
+    set `output='series'` for a pandas series instead. If you want to align these results
+    so that they match the columnar (time) axis of the pianoRoll, sampled, or mask results,
+    you can pass the pianoRoll or mask that you want to align to as the `snap_to` parameter.
 
-  def harmKeys(self, snap_to=None, filler=None):
-    '''\tGet the key analysis from the **harm spine as a pandas dataframe if this
-    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. If you
-    want to align these results so that they match the columnar (time) axis of the pianoRoll
-    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
-    parameter. This will swap the axes of the `harmKeys` results and make the timepoints in
-    the columnar axis match those of the passed pianoRoll or mask.
-
-    The `mask` will almost always have more observations than the `harmKeys`
+    The `sampled` and `mask` will almost always have more observations than the `harmKeys`
     results, so you may want to fill in these new empty slots somehow. The kern format uses
     '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
     empty slots with this as well. If you choose some other value, say `filler='_'`, then in
     addition to filling in the empty slots with underscores, this will also replace the kern
     '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
-    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
-    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
-    observation until a new one is found.
+    you can pass `filler='nan'` as a convenience. If you want to "forward fill" these
+    results, you can pass `filler='forward'` (default). This will propagate the last
+    non-period ('.') observation until a new one is found.
 
     Usage assuming you have a Score object named `piece` in memory:
-    # get the harmKeys as a dataframe
-    harmKeys = piece.harmKeys()
+    # get the key data as a forward-filled array. No need to specify filler='forward' because it's the default
+    keys = piece.harmKeys()
 
-    # get the harmKeys and forward fill the results
-    harmKeys = piece.harmKeys(filler='forward')
-
-    # get the harmKeys in the shape of the pianoRoll columns
-    pianoRoll = piece.pianoRoll()
-    harmKeys = piece.harmKeys(snap_to=pianoRoll)
-
-    # get the harmKeys in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    # get the harmonies in the shape of the mask columns
     mask = piece.mask()
-    harmKeys = piece.harmKeys(snap_to=mask, filler='nan')
+    keys = piece.harmKeys(snap_to=mask)
+
+    # get the harmonies in the shape of the mask columns and replace kern's '.' tokens with NaNs
+    mask = piece.mask()
+    keys = piece.harmKeys(snap_to=mask, filler='nan')
     '''
-    return self._snapTo(self._analyses['harmKeys'].copy(), snap_to, filler)
+    return self._snapTo(self._analyses['harmKeys'].copy(), snap_to, filler, output)
 
-  def harmonies(self, snap_to=None, filler=None):
-    '''\tGet the harmonic analysis from the **harm spine as a pandas dataframe if this
-    piece is a kern file and has a **harm spine. Otherwise return an empty dataframe. If you
-    want to align these results so that they match the columnar (time) axis of the pianoRoll
-    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
-    parameter. This will swap the axes of the `harmonies` results and make the timepoints in
-    the columnar axis match those of the passed pianoRoll or mask.
+  def harmonies(self, snap_to=None, filler='forward', output='array'):
+    '''\tGet the harmonic analysis from the **harm spine if this piece is a kern file and has a
+    **harm spine. The default is for the results to be returned as a 1-d array, but you can
+    set `output='series'` for a pandas series instead. If you want to align these results
+    so that they match the columnar (time) axis of the pianoRoll, sampled, or mask results,
+    you can pass the pianoRoll or mask that you want to align to as the `snap_to` parameter.
 
-    The `mask` will almost always have more observations than the `harmonies`
+    The `sampled` and `mask` will almost always have more observations than the `harmonies`
     results, so you may want to fill in these new empty slots somehow. The kern format uses
     '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
     empty slots with this as well. If you choose some other value, say `filler='_'`, then in
     addition to filling in the empty slots with underscores, this will also replace the kern
     '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
-    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
-    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
-    observation until a new one is found.
+    you can pass `filler='nan'` as a convenience. If you want to "forward fill" these
+    results, you can pass `filler='forward'` (default). This will propagate the last
+    non-period ('.') observation until a new one is found.
 
     Usage assuming you have a Score object named `piece` in memory:
-    # get the harmonies as a dataframe
+    # get the harm data as a forward-filled array. No need to specify filler='forward' because it's the default
     harmonies = piece.harmonies()
 
-    # get the harmonies and forward fill the results
-    harmonies = piece.harmonies(filler='forward')
-
-    # get the harmonies in the shape of the pianoRoll columns
-    pianoRoll = piece.pianoRoll()
-    harmonies = piece.harmonies(snap_to=pianoRoll)
+    # get the harmonies in the shape of the mask columns
+    mask = piece.mask()
+    harmonies = piece.harmonies(snap_to=mask)
 
     # get the harmonies in the shape of the mask columns and replace kern's '.' tokens with NaNs
     mask = piece.mask()
     harmonies = piece.harmonies(snap_to=mask, filler='nan')
     '''
-    return self._snapTo(self._analyses['harm'].copy(), snap_to, filler)
+    return self._snapTo(self._analyses['harm'].copy(), snap_to, filler, output)
 
-  def functions(self, snap_to=None, filler=None):
-    '''\tGet the functional analysis from the **function spine as a pandas dataframe if this
-    piece is a kern file and has a **function spine. Otherwise return an empty dataframe. If you
-    want to align these results so that they match the columnar (time) axis of the pianoRoll
-    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
-    parameter. This will swap the axes of the `functions` results and make the timepoints in
-    the columnar axis match those of the passed pianoRoll or mask.
+  def functions(self, snap_to=None, filler='forward', output='array'):
+    '''\tGet the functional analysis from the **function spine if this piece is a kern file and
+    has a **function spine. The default is for the results to be returned as a 1-d array, but
+    you can set `output='series'` for a pandas series instead. If you want to align these results
+    so that they match the columnar (time) axis of the pianoRoll, sampled, or mask results,
+    you can pass the pianoRoll or mask that you want to align to as the `snap_to` parameter.
 
-    The `mask` will almost always have more observations than the `functions`
+    The `sampled` and `mask` will almost always have more observations than the `harmKeys`
     results, so you may want to fill in these new empty slots somehow. The kern format uses
     '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
     empty slots with this as well. If you choose some other value, say `filler='_'`, then in
     addition to filling in the empty slots with underscores, this will also replace the kern
     '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
-    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
-    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
-    observation until a new one is found.
+    you can pass `filler='nan'` as a convenience. If you want to "forward fill" these
+    results, you can pass `filler='forward'` (default). This will propagate the last
+    non-period ('.') observation until a new one is found.
 
     Usage assuming you have a Score object named `piece` in memory:
-    # get the functions as a dataframe
+    # get the functional analysis as a forward-filled array. No need to specify filler='forward' because it's the default
     functions = piece.functions()
 
-    # get the functions and forward fill the results
-    functions = piece.functions(filler='forward')
-
-    # get the functions in the shape of the pianoRoll columns
-    pianoRoll = piece.pianoRoll()
-    functions = piece.functions(snap_to=pianoRoll)
+    # get the functions in the shape of the mask columns
+    mask = piece.mask()
+    functions = piece.functions(snap_to=mask)
 
     # get the functions in the shape of the mask columns and replace kern's '.' tokens with NaNs
     mask = piece.mask()
     functions = piece.functions(snap_to=mask, filler='nan')
     '''
-    return self._snapTo(self._analyses['function'].copy(), snap_to, filler)
+    return self._snapTo(self._analyses['function'].copy(), snap_to, filler, output)
 
-  def cdata(self, snap_to=None, filler=None):
-    '''\tGet the cdata records from the **cdata spine as a pandas dataframe if this
-    piece is a kern file and has a **cdata spine. Otherwise return an empty dataframe. If you
-    want to align these results so that they match the columnar (time) axis of the pianoRoll
-    or mask, you can pass the pianoRoll or mask that you want to align to as the `snap_to`
-    parameter. This will swap the axes of the `cdata` results and make the timepoints in
-    the columnar axis match those of the passed pianoRoll or mask.
+  def cdata(self, snap_to=None, filler='forward', output='dataframe'):
+    '''\tGet the key analysis from the **cdata spine if this piece is a kern file and has a
+    **cdata spine. The default is for the results to be returned as a pandas.DataFrame. 
+    If you want to align these results so that they match the columnar (time) axis of the
+    pianoRoll, sampled, or mask results, you can pass the pianoRoll or mask that you want to
+    align to as the `snap_to` parameter.
 
-    The `mask` will almost always have more observations than the `cdata`
+    The `sampled` and `mask` will almost always have more observations than the `cdata`
     results, so you may want to fill in these new empty slots somehow. The kern format uses
     '.' as a filler token so you can pass this as the `filler` parameter to fill all the new
     empty slots with this as well. If you choose some other value, say `filler='_'`, then in
     addition to filling in the empty slots with underscores, this will also replace the kern
     '.' observations with '_'. If you want to fill them in with NaN's as pandas usually does,
-    you can pass `filler='nan'` as a convenience. Finally, if you want to "forward fill" these
-    results, you can pass `filler='forward'`. This will propagate the last non-period ('.')
-    observation until a new one is found.
+    you can pass `filler='nan'` as a convenience. If you want to "forward fill" these
+    results, you can pass `filler='forward'` (default). This will propagate the last
+    non-period ('.') observation until a new one is found.
 
     Usage assuming you have a Score object named `piece` in memory:
-    # get the cdata as a dataframe
+    # get the cdata as a forward-filled dataframe. No need to specify filler='forward' because it's the default
     cdata = piece.cdata()
 
-    # get the cdata and forward fill the results
-    cdata = piece.cdata(filler='forward')
-
-    # get the cdata in the shape of the pianoRoll columns
-    pianoRoll = piece.pianoRoll()
-    cdata = piece.cdata(snap_to=pianoRoll)
+    # get the cdata in the shape of the mask columns
+    mask = piece.mask()
+    cdata = piece.cdata(snap_to=mask)
 
     # get the cdata in the shape of the mask columns and replace kern's '.' tokens with NaNs
     mask = piece.mask()
     cdata = piece.cdata(snap_to=mask, filler='nan')
     '''
-    return self._snapTo(self._analyses['cdata'].copy(), snap_to, filler)
+    return self._snapTo(self._analyses['cdata'].copy(), snap_to, filler, output)
 
   def _remove_tied(self, noteOrRest):
     if hasattr(noteOrRest, 'tie') and noteOrRest.tie is not None and noteOrRest.tie.type != 'start':
@@ -736,11 +735,8 @@ class Score:
       self._analyses[key] = nmats
     return self._analyses[key]
 
-  def pianoRoll(self, keys=False, functions=False, harmonies=False):
-    '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches. If any of the
-    `keys`, `functions`, or `harmonies` parameters are set to True (all default to False), then
-    the corresponding row or rows will be added to the bottom of the pianoRoll. Similar options
-    are available for the mask.'''
+  def pianoRoll(self):
+    '''\tConstruct midi piano roll. NB: there are 128 possible midi pitches.'''
     if 'pianoRoll' not in self._analyses:
       mp = self.midiPitches()
       mp = mp[~mp.index.duplicated(keep='last')].ffill()  # remove non-last offset repeats and forward-fill
@@ -751,17 +747,7 @@ class Score:
             pianoRoll.at[pitch, offset] = 1
       pianoRoll.fillna(0, inplace=True)
       self._analyses['pianoRoll'] = pianoRoll
-    pr = self._analyses['pianoRoll']
-    toAdd = [pr]
-    if keys:
-      toAdd.append(self.harmKeys().T)
-    if functions:
-      toAdd.append(self.functions().T)
-    if harmonies:
-      toAdd.append(self.harmonies().T)
-    if len(toAdd) > 1:
-      pr = pd.concat(toAdd)
-    return pr
+    return self._analyses['pianoRoll']
 
   def sampled(self, bpm=60, obs=20):
     '''\tSample the score according to bpm, and the desired observations per second, `obs`.'''
@@ -776,8 +762,7 @@ class Score:
     return self._analyses[key]
 
   def mask(self, winms=100, sample_rate=2000, num_harmonics=1, width=0,
-          bpm=60, aFreq=440, base_note=0, tuning_factor=1, obs=20,
-          keys=False, functions=False, harmonies=False):
+          bpm=60, aFreq=440, base_note=0, tuning_factor=1, obs=20):
     '''\tConstruct a mask from the sampled piano roll using width and harmonics.'''
     key = ('mask', winms, sample_rate, num_harmonics, width, bpm, aFreq, base_note, tuning_factor)
     if key not in self._analyses:
@@ -801,25 +786,7 @@ class Score:
               mcol.loc[minbin : maxbin] = 1
           mask.iloc[np.where(mcol)[0], np.where(sampled.iloc[row])[0]] = 1
       self._analyses[key] = mask
-    else:
-      mask = self._analyses[key]
-    toAdd = [mask]
-    if keys:
-      ky = self.harmKeys().T
-      ky = ky.reindex(columns=mask.columns).fillna('.')
-      toAdd.append(ky)
-    if functions:
-      funcs = self.functions().T
-      funcs = funcs.reindex(columns=mask.columns).fillna('.')
-      toAdd.append(funcs)
-    if harmonies:
-      harm = self.harmonies().T
-      harm = harm.reindex(columns=mask.columns).fillna('.')
-      toAdd.append(harm)
-    if len(toAdd) > 1:
-      return pd.concat(toAdd)
-    else:
-      return mask
+    return self._analyses[key]
 
   def fromJSON(self, json_path):
     '''\tReturn a pandas dataframe of the JSON file. The outermost keys will get
